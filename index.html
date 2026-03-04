@@ -793,7 +793,7 @@
                             <select id="bank-knowledge" class="border border-gray-300 rounded-md px-3 py-2">
                                 <option value="all">全部知识点</option>
                             </select>
-                            <div class="flex items-center gap-2">
+                            <div class="flex flex-wrap items-center gap-2">
                                 <label class="flex items-center gap-2 text-sm text-neutral">
                                     <input id="bank-fav" type="checkbox" />
                                     <span>仅收藏</span>
@@ -809,8 +809,8 @@
                             </div>
                         </div>
 
-                        <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
-                            <div class="flex gap-2">
+                        <div class="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <div class="flex flex-wrap gap-2">
                                 <button class="btn btn-primary" id="bank-start-filter"><i class="fa fa-play-circle mr-2"></i>练习当前筛选（20题）</button>
                                 <button class="btn btn-outline" id="bank-add-fav">将筛选结果加入收藏</button>
                             </div>
@@ -1156,7 +1156,7 @@
                         <div class="space-y-3 text-neutral">
                             <p><strong>今日计划：</strong>根据考试日期与剩余题量计算今日目标，并统计今日完成/正确率。</p>
                             <p><strong>题库（已优化）：</strong>支持搜索（题干/ID）、按状态/题型/知识点/收藏筛选、分页浏览，并支持“练习当前筛选（20题）”和“将筛选结果加入收藏”。</p>
-                            <p><strong>题库视图切换（新）：</strong>支持“列表”与“按知识点”两种视图。在“按知识点”视图里可查看每个知识点的掌握度、题量、未掌握数，并一键进入该知识点专项20题。</p>
+                            <p><strong>题库视图切换（新）：</strong>支持“列表”与“按知识点”两种视图。切换后会自动回到题库区域顶部，避免你滚动在页面下方导致“看起来像没变化”。在“按知识点”视图里可查看每个知识点的掌握度、题量、未掌握数，并一键进入该知识点专项20题。</p>
                         </div>
                     </div>
 

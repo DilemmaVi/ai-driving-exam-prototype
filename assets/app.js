@@ -1692,7 +1692,15 @@ function renderQuestionBank() {
   const view = qs('#bank-view');
   if (view && !view.dataset.bound) {
     view.dataset.bound = '1';
-    view.addEventListener('change', () => { bankState.view = view.value; bankState.page = 1; renderQuestionBank(); });
+    // 初始化下拉与状态一致
+    view.value = bankState.view || 'list';
+    view.addEventListener('change', () => {
+      bankState.view = view.value;
+      bankState.page = 1;
+      renderQuestionBank();
+      // 切到按知识点时把页面滚回到列表顶部，避免用户以为“没变化”
+      qs('#question-bank')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   }
 
   const prev = qs('#bank-prev');
