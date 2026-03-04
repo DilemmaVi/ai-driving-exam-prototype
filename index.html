@@ -251,7 +251,7 @@
                             <span>基础好：70-79分</span>
                         </button>
                         <button class="btn btn-outline w-full text-left py-3" data-level="80+">
-                            <span>基础非常好：80-89以上分</span>
+                            <span>基础非常好：80分及以上</span>
                         </button>
                     </div>
                 </div>
@@ -1029,78 +1029,190 @@
             day: 'numeric'
         });
         
-        // 模式选择流程
+        // =============================
+        // 向导模式（智能模式）
+        // 目标：每一步只能看到当前步骤；重选会清空后续步骤；支持返回上一步
+        // =============================
+
+        const state = {
+            mode: null,            // free | smart
+            accountStatus: null,   // continue | new
+            createMethod: null,    // manual | scan
+            carType: null,         // string
+            subject: null,         // string
+            examStatus: null,      // scheduled | not
+            examTime: null,        // soon | later
+            level: null,           // <40 | 40-49 | 50-69 | 70-79 | 80+
+        };
+
+        const steps = [
+            'smart-mode-flow',
+            'new-account-flow',
+            'car-type-flow',
+            'subject-choice-car',
+            'subject-choice-other',
+            'exam-status-flow',
+            'exam-time-flow',
+            'level-flow',
+            'learning-path-flow'
+        ];
+
+        function show(id) {
+            document.getElementById(id).classList.remove('hidden');
+        }
+        function hide(id) {
+            document.getElementById(id).classList.add('hidden');
+        }
+        function hideFrom(id) {
+            const idx = steps.indexOf(id);
+            if (idx === -1) return;
+            for (let i = idx; i < steps.length; i++) hide(steps[i]);
+        }
+        function clearSmartSelectionsFrom(stepId) {
+            // 清理“向后”的状态
+            const order = {
+                'smart-mode-flow': ['accountStatus','createMethod','carType','subject','examStatus','examTime','level'],
+                'new-account-flow': ['createMethod','carType','subject','examStatus','examTime','level'],
+                'car-type-flow': ['carType','subject','examStatus','examTime','level'],
+                'subject-choice-car': ['subject','examStatus','examTime','level'],
+                'subject-choice-other': ['subject','examStatus','examTime','level'],
+                'exam-status-flow': ['examStatus','examTime','level'],
+                'exam-time-flow': ['examTime','level'],
+                'level-flow': ['level'],
+            };
+            (order[stepId] || []).forEach(k => state[k] = null);
+
+            // 清理 UI 选中态
+            document.querySelectorAll('#car-type-flow button, #subject-choice-car button, #subject-choice-other button, #level-flow button').forEach(btn => {
+                btn.classList.remove('bg-primary/10', 'border-primary');
+            });
+        }
+
+        // 模式选择
         document.getElementById('free-mode-btn').addEventListener('click', function() {
-            document.getElementById('smart-mode-flow').classList.add('hidden');
-            document.getElementById('free-mode-flow').classList.remove('hidden');
+            state.mode = 'free';
+            hide('smart-mode-flow');
+            show('free-mode-flow');
         });
-        
+
         document.getElementById('smart-mode-btn').addEventListener('click', function() {
-            document.getElementById('free-mode-flow').classList.add('hidden');
-            document.getElementById('smart-mode-flow').classList.remove('hidden');
+            state.mode = 'smart';
+            hide('free-mode-flow');
+            // 进入智能向导：只展示第一步（smart-mode-flow），其余全部隐藏
+            steps.slice(1).forEach(hide);
+            show('smart-mode-flow');
         });
-        
-        // 智能模式流程
+
+        // 账号状态：继续学习 / 新账号
         document.getElementById('continue-btn').addEventListener('click', function() {
-            document.getElementById('car-type-flow').classList.remove('hidden');
+            state.accountStatus = 'continue';
+            clearSmartSelectionsFrom('smart-mode-flow');
+            hideFrom('new-account-flow');
+            show('car-type-flow');
         });
-        
+
         document.getElementById('new-account-btn').addEventListener('click', function() {
-            document.getElementById('new-account-flow').classList.remove('hidden');
+            state.accountStatus = 'new';
+            clearSmartSelectionsFrom('smart-mode-flow');
+            hideFrom('new-account-flow');
+            show('new-account-flow');
         });
-        
-        // 车型选择
+
+        // 新账号：创建方式（先占位记录，不打断流程）
+        const manualBtn = document.getElementById('create-manual-btn');
+        const scanBtn = document.getElementById('create-scan-btn');
+        if (manualBtn) {
+            manualBtn.addEventListener('click', function() {
+                state.createMethod = 'manual';
+                hideFrom('car-type-flow');
+                show('car-type-flow');
+            });
+        }
+        if (scanBtn) {
+            scanBtn.addEventListener('click', function() {
+                state.createMethod = 'scan';
+                hideFrom('car-type-flow');
+                show('car-type-flow');
+            });
+        }
+
+        // 车型选择 → 科目选择（C1/C2 特殊功能）
         document.querySelectorAll('#car-type-flow button').forEach(btn => {
             btn.addEventListener('click', function() {
-                const carType = this.getAttribute('data-car-type');
-                if (carType.includes('C1') || carType.includes('C2')) {
-                    document.getElementById('subject-choice-car').classList.remove('hidden');
-                    document.getElementById('subject-choice-other').classList.add('hidden');
+                state.carType = this.getAttribute('data-car-type');
+                clearSmartSelectionsFrom('car-type-flow');
+                hideFrom('subject-choice-car');
+
+                // 选中态
+                document.querySelectorAll('#car-type-flow button').forEach(b => b.classList.remove('bg-primary/10','border-primary'));
+                this.classList.add('bg-primary/10','border-primary');
+
+                if (state.carType && (state.carType.includes('C1') || state.carType.includes('C2'))) {
+                    show('subject-choice-car');
+                    hide('subject-choice-other');
                 } else {
-                    document.getElementById('subject-choice-other').classList.remove('hidden');
-                    document.getElementById('subject-choice-car').classList.add('hidden');
+                    show('subject-choice-other');
+                    hide('subject-choice-car');
                 }
             });
         });
-        
-        // 科目选择
+
+        // 科目选择 → 约考状态
         document.querySelectorAll('#subject-choice-car button, #subject-choice-other button').forEach(btn => {
             btn.addEventListener('click', function() {
-                document.getElementById('exam-status-flow').classList.remove('hidden');
+                state.subject = this.getAttribute('data-subject');
+                clearSmartSelectionsFrom(state.carType && (state.carType.includes('C1') || state.carType.includes('C2')) ? 'subject-choice-car' : 'subject-choice-other');
+                hideFrom('exam-status-flow');
+                show('exam-status-flow');
+
+                // 选中态
+                const container = this.closest('#subject-choice-car') ? '#subject-choice-car' : '#subject-choice-other';
+                document.querySelectorAll(container + ' button').forEach(b => b.classList.remove('bg-primary/10','border-primary'));
+                this.classList.add('bg-primary/10','border-primary');
             });
         });
-        
-        // 约考状态选择
-        document.querySelectorAll('#exam-status-flow button').forEach(btn => {
-            btn.addEventListener('click', function() {
-                if (this.id === 'exam-scheduled-btn') {
-                    document.getElementById('exam-time-flow').classList.remove('hidden');
-                } else {
-                    document.getElementById('level-flow').classList.remove('hidden');
-                }
-            });
+
+        // 约考状态 →（已约考→考试时间；未约考→基础分档）
+        document.getElementById('exam-scheduled-btn').addEventListener('click', function() {
+            state.examStatus = 'scheduled';
+            clearSmartSelectionsFrom('exam-status-flow');
+            hideFrom('exam-time-flow');
+            show('exam-time-flow');
         });
-        
-        // 考试时间选择
-        document.querySelectorAll('#exam-time-flow button').forEach(btn => {
-            btn.addEventListener('click', function() {
-                if (this.id === 'exam-soon-btn') {
-                    // 考试时间剩余1天以内，进入考前强化
-                    alert('考试时间剩余1天以内，进入考前强化模式');
-                } else {
-                    document.getElementById('level-flow').classList.remove('hidden');
-                }
-            });
+
+        document.getElementById('exam-not-scheduled-btn').addEventListener('click', function() {
+            state.examStatus = 'not';
+            clearSmartSelectionsFrom('exam-status-flow');
+            hideFrom('level-flow');
+            show('level-flow');
         });
-        
-        // 基础分档选择
+
+        // 考试时间 →（<=1天→直接进入主应用并跳考前冲刺；否则→基础分档）
+        document.getElementById('exam-soon-btn').addEventListener('click', function() {
+            state.examTime = 'soon';
+            // 直接进入主应用 + 跳转考前冲刺
+            document.getElementById('mode-selection').classList.add('hidden');
+            document.getElementById('main-app').classList.remove('hidden');
+            document.querySelector('.nav-item[data-target="crash-course"]').click();
+        });
+
+        document.getElementById('exam-later-btn').addEventListener('click', function() {
+            state.examTime = 'later';
+            clearSmartSelectionsFrom('exam-time-flow');
+            hideFrom('level-flow');
+            show('level-flow');
+        });
+
+        // 基础分档 → 学习路径
         document.querySelectorAll('#level-flow button').forEach(btn => {
             btn.addEventListener('click', function() {
-                const level = this.getAttribute('data-level');
+                state.level = this.getAttribute('data-level');
                 const pathInfo = document.getElementById('path-info');
-                
-                // 根据基础分档显示不同的学习路径
-                switch(level) {
+
+                document.querySelectorAll('#level-flow button').forEach(b => b.classList.remove('bg-primary/10','border-primary'));
+                this.classList.add('bg-primary/10','border-primary');
+
+                switch(state.level) {
                     case '<40':
                         pathInfo.innerHTML = '<p class="font-medium">基础差学习路径：</p><p>1. 系统学习交通法规基础（100题）</p><p>2. 学习安全文明驾驶知识（100题）</p><p>3. 识别交通标志标线（50题）</p><p>4. 模拟考试练习（5次）</p>';
                         break;
@@ -1116,17 +1228,21 @@
                     case '80+':
                         pathInfo.innerHTML = '<p class="font-medium">基础非常好学习路径：</p><p>1. 模拟考试冲刺（2次）</p><p>2. 易错点回顾（20题）</p><p>3. 考前心态调整</p>';
                         break;
+                    default:
+                        pathInfo.innerHTML = '<p>请选择基础分档查看学习路径</p>';
                 }
-                
-                document.getElementById('learning-path-flow').classList.remove('hidden');
+
+                hideFrom('learning-path-flow');
+                show('learning-path-flow');
             });
         });
-        
-        // 开始学习按钮
+
+        // 开始学习按钮（完成向导，进入主应用）
         document.getElementById('start-learning-btn').addEventListener('click', function() {
-            // 隐藏模式选择页面，显示主应用
             document.getElementById('mode-selection').classList.add('hidden');
             document.getElementById('main-app').classList.remove('hidden');
+            // 默认进个性学习
+            document.querySelector('.nav-item[data-target="learning"]').click();
         });
         
         document.getElementById('start-free-learning-btn').addEventListener('click', function() {
