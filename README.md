@@ -24,6 +24,7 @@ python3 -m http.server 5173
 - `qa.wrong`：错题题目 id 列表
 - `qa.wrongStreak`：错题消除计数（同一题连续答对次数）
 - `qa.daily`：按天统计（done/correct）
+- `qa.knowledgeMastery`：知识点掌握度（mastery/attempts/correct/lastTs）
 
 ## 如何清空本地数据
 在浏览器控制台执行：
@@ -35,5 +36,6 @@ localStorage.removeItem('qa.notes');
 localStorage.removeItem('qa.wrong');
 localStorage.removeItem('qa.wrongStreak');
 localStorage.removeItem('qa.daily');
+localStorage.removeItem('qa.knowledgeMastery');
 ```
 或在浏览器设置里清空站点数据。

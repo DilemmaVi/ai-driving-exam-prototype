@@ -10,7 +10,9 @@ import {
   setNote,
   getWrongList,
   removeWrong,
-  getDaily
+  getDaily,
+  updateKnowledgeMastery,
+  getKnowledgeMastery
 } from './storage.js';
 
 let QUESTIONS = [];
@@ -93,7 +95,22 @@ function renderPlanSummary() {
   `;
 }
 
-let practiceMode = 'all'; // all | wrong
+const KNOWLEDGE_DICT = {
+  'law.basic': '交通法规基础',
+  'law.signals': '信号灯与优先通行',
+  'law.lanes': '车道与通行规则',
+  'law.parking': '停车与临停规定',
+  'safe.civilized': '安全文明驾驶',
+  'safe.bad_weather': '恶劣天气/特殊路况',
+  'safe.emergency': '紧急情况与事故处理',
+  'safe.fatigue_drink': '疲劳/分心/酒驾等风险行为',
+  'lights': '灯光使用',
+  'highway': '高速公路规则',
+  'signs_markings': '标志标线',
+  'police_command': '交警手势与指挥'
+};
+
+let practiceMode = 'all'; // all | wrong | smart
 let wrongQueue = [];
 
 function getCurrentQuestion() {
@@ -103,6 +120,41 @@ function getCurrentQuestion() {
 
 function getCurrentTotal() {
   return practiceMode === 'wrong' ? wrongQueue.length : QUESTIONS.length;
+}
+
+function pickSmartIndex() {
+  const progress = getProgress();
+  const km = getKnowledgeMastery();
+  const now = Date.now();
+
+  // 只从未做过的题里挑（先加速覆盖）；若都做过则允许重做掌握度最低的知识点题
+  const unanswered = QUESTIONS.filter(q => !progress.answered?.[q.id]);
+  const pool = unanswered.length ? unanswered : QUESTIONS;
+
+  function score(q) {
+    const kid = q.knowledgeId || 'law.basic';
+    const m = km[kid]?.mastery ?? 0.5;
+    const freq = Number(q.frequency || 3);
+    const lastTs = km[kid]?.lastTs || 0;
+    const days = lastTs ? (now - lastTs) / (1000 * 3600 * 24) : 999;
+    const recencyBoost = Math.min(1.3, 0.8 + Math.min(7, days) / 10); // 0.8~1.3
+    const base = (1 - m) * (0.6 + 0.1 * freq) * recencyBoost;
+    const donePenalty = progress.answered?.[q.id] ? 0.85 : 1.0;
+    return base * donePenalty;
+  }
+
+  let best = pool[0];
+  let bestScore = -Infinity;
+  for (const q of pool) {
+    const s = score(q);
+    if (s > bestScore) {
+      bestScore = s;
+      best = q;
+    }
+  }
+
+  const idx = QUESTIONS.findIndex(x => x.id === best.id);
+  return Math.max(0, idx);
 }
 
 function renderQuestion() {
@@ -131,7 +183,24 @@ function renderQuestion() {
   optWrap.innerHTML = '';
 
   const typeLabel = q.type === 'tf' ? '判断题' : '单选题';
-  qs('#q-type').textContent = typeLabel;
+  const kName = KNOWLEDGE_DICT[q.knowledgeId] || q.knowledgeName || '未标注知识点';
+  const km = getKnowledgeMastery();
+  const mastery = km[q.knowledgeId]?.mastery;
+  const masteryText = (typeof mastery === 'number') ? ` · 知识点：${kName}（掌握度 ${(mastery * 100).toFixed(0)}%）` : ` · 知识点：${kName}`;
+
+  qs('#q-type').textContent = typeLabel + masteryText;
+
+  const reasonEl = qs('#smart-reason');
+  if (reasonEl) {
+    if (practiceMode === 'smart') {
+      const freq = Number(q.frequency || 3);
+      const m = (typeof mastery === 'number') ? mastery : 0.5;
+      reasonEl.textContent = `推荐原因：高频权重 ${freq}/5 + 当前掌握度 ${(m * 100).toFixed(0)}%（优先补短板）`;
+      reasonEl.classList.remove('hidden');
+    } else {
+      reasonEl.classList.add('hidden');
+    }
+  }
 
   const selected = answered?.selected;
   const locked = typeof selected === 'number';
@@ -156,9 +225,21 @@ function renderQuestion() {
     item.addEventListener('click', () => {
       if (locked) return;
       const correct = idx === q.answer;
+
+      // 记录做题
       upsertAnswer(q.id, idx, correct, { wrongClearThreshold: 2 });
+      // 更新知识点掌握度
+      updateKnowledgeMastery(q.knowledgeId, correct, { frequency: q.frequency, difficulty: q.difficulty });
+
+      // 智能模式：答完自动跳下一题（加速）
+      if (practiceMode === 'smart') {
+        currentIndex = pickSmartIndex();
+      }
+
       renderQuestion();
       renderStats();
+      renderPlanSummary();
+
       // 若在错题模式下答对后被自动移出，可能导致队列变化，这里轻量刷新错题本数据
       if (practiceMode === 'wrong') {
         const ids = getWrongList();
@@ -250,8 +331,28 @@ function bindEvents() {
     renderQuestion();
   });
   qs('#btn-next').addEventListener('click', () => {
-    if (currentIndex < getCurrentTotal() - 1) currentIndex += 1;
+    if (practiceMode === 'smart') {
+      currentIndex = pickSmartIndex();
+    } else {
+      if (currentIndex < getCurrentTotal() - 1) currentIndex += 1;
+    }
     renderQuestion();
+  });
+
+  // 模式切换
+  qsa('[data-practice-mode]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      practiceMode = btn.getAttribute('data-practice-mode');
+      qsa('[data-practice-mode]').forEach(b => b.classList.remove('btn-primary'));
+      btn.classList.add('btn-primary');
+
+      if (practiceMode === 'smart') {
+        currentIndex = pickSmartIndex();
+      } else {
+        currentIndex = 0;
+      }
+      renderQuestion();
+    });
   });
   qs('#btn-fav').addEventListener('click', () => {
     const q = getCurrentQuestion();

@@ -715,15 +715,23 @@
                                 <p class="text-neutral mt-1">科目一（Mock题库） · <span id="q-type">-</span> · 题目 <span id="q-index">-</span>/<span id="q-total">-</span> · <span class="text-xs text-neutral">ID: <span id="q-id">-</span></span></p>
                                 <div class="mt-2 flex flex-wrap gap-2" id="q-tags"></div>
                             </div>
-                            <div class="flex gap-2">
-                                <button class="btn btn-secondary" id="btn-prev"><i class="fa fa-chevron-left mr-2"></i>上一题</button>
-                                <button class="btn btn-secondary" id="btn-next">下一题<i class="fa fa-chevron-right ml-2"></i></button>
-                                <button class="btn btn-outline" id="btn-fav"><i class="fa fa-star-o mr-2"></i>收藏</button>
+                            <div class="flex flex-wrap gap-2 items-center">
+                                <div class="flex gap-2">
+                                    <button class="btn btn-secondary" id="btn-prev"><i class="fa fa-chevron-left mr-2"></i>上一题</button>
+                                    <button class="btn btn-secondary" id="btn-next">下一题<i class="fa fa-chevron-right ml-2"></i></button>
+                                    <button class="btn btn-outline" id="btn-fav"><i class="fa fa-star-o mr-2"></i>收藏</button>
+                                </div>
+                                <div class="flex gap-2">
+                                    <button class="btn btn-secondary" data-practice-mode="all">顺序</button>
+                                    <button class="btn btn-secondary" data-practice-mode="smart">智能</button>
+                                    <button class="btn btn-secondary" data-practice-mode="wrong">错题</button>
+                                </div>
                             </div>
                         </div>
 
                         <div class="mt-6">
                             <p class="text-lg font-medium" id="q-stem">-</p>
+                            <p class="text-sm text-neutral mt-2 hidden" id="smart-reason"></p>
                         </div>
 
                         <div class="mt-4 space-y-3" id="q-options"></div>

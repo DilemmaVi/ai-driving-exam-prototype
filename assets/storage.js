@@ -8,7 +8,8 @@ export const LS_KEYS = {
   NOTES: 'qa.notes',            // { [id]: string }
   WRONG: 'qa.wrong',            // string[]  (wrong question ids)
   WRONG_STREAK: 'qa.wrongStreak',// { [id]: number } 连续答对次数
-  DAILY: 'qa.daily'             // { byDate: { [YYYY-MM-DD]: { done:number, correct:number } } }
+  DAILY: 'qa.daily',            // { byDate: { [YYYY-MM-DD]: { done:number, correct:number } } }
+  KNOWLEDGE: 'qa.knowledgeMastery' // { [knowledgeId]: { mastery:number, attempts:number, correct:number, lastTs:number } }
 };
 
 function safeJsonParse(raw, fallback) {
@@ -167,6 +168,44 @@ export function setNote(questionId, text) {
   const notes = getNotes();
   notes[questionId] = (text || '').slice(0, 2000);
   localStorage.setItem(LS_KEYS.NOTES, JSON.stringify(notes));
+}
+
+export function getKnowledgeMastery() {
+  return safeJsonParse(localStorage.getItem(LS_KEYS.KNOWLEDGE), {});
+}
+
+export function setKnowledgeMastery(map) {
+  localStorage.setItem(LS_KEYS.KNOWLEDGE, JSON.stringify(map || {}));
+}
+
+export function updateKnowledgeMastery(knowledgeId, correct, meta = {}) {
+  if (!knowledgeId) return;
+  const km = getKnowledgeMastery();
+  const cur = km[knowledgeId] || { mastery: 0.5, attempts: 0, correct: 0, lastTs: 0 };
+
+  const freq = Number(meta.frequency || 3);
+  const diff = Number(meta.difficulty || 3);
+
+  // 简单可控：高频/高难的权重更大
+  const gain = 0.10 + 0.02 * (freq - 3) + 0.01 * (diff - 3); // 约 0.06 ~ 0.16
+  const loss = 0.18 + 0.03 * (freq - 3) + 0.02 * (diff - 3); // 约 0.10 ~ 0.28
+
+  let mastery = Number(cur.mastery ?? 0.5);
+  mastery = Math.max(0.02, Math.min(0.98, mastery));
+
+  cur.attempts += 1;
+  if (correct) {
+    cur.correct += 1;
+    mastery = mastery + (1 - mastery) * Math.max(0.05, Math.min(0.25, gain));
+  } else {
+    mastery = mastery - mastery * Math.max(0.08, Math.min(0.35, loss));
+  }
+
+  cur.mastery = Math.max(0, Math.min(1, mastery));
+  cur.lastTs = Date.now();
+  km[knowledgeId] = cur;
+  setKnowledgeMastery(km);
+  return km;
 }
 
 export function clearAllData() {
