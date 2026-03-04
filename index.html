@@ -371,18 +371,18 @@
                 </div>
                 <div class="flex items-center gap-4">
                     <div class="relative">
-                        <button class="p-2 rounded-full hover:bg-gray-100">
+                        <button class="p-2 rounded-full hover:bg-gray-100" data-top-action="notifications">
                             <i class="fa fa-bell text-neutral"></i>
                             <span class="absolute top-1 right-1 w-2 h-2 bg-error rounded-full"></span>
                         </button>
                     </div>
                     <div class="relative">
-                        <button class="p-2 rounded-full hover:bg-gray-100">
+                        <button class="p-2 rounded-full hover:bg-gray-100" data-top-action="help">
                             <i class="fa fa-question-circle text-neutral"></i>
                         </button>
                     </div>
                     <div class="relative">
-                        <button class="p-2 rounded-full hover:bg-gray-100">
+                        <button class="p-2 rounded-full hover:bg-gray-100" data-top-action="settings">
                             <i class="fa fa-cog text-neutral"></i>
                         </button>
                     </div>
@@ -606,19 +606,19 @@
                         <div class="mb-6">
                             <h4 class="font-bold mb-4">学习模式选择</h4>
                             <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                <button class="btn btn-outline flex flex-col items-center gap-2 py-4">
+                                <button class="btn btn-outline flex flex-col items-center gap-2 py-4" data-learning-mode="order">
                                     <i class="fa fa-list-ol text-xl"></i>
                                     <span>顺序学习</span>
                                 </button>
-                                <button class="btn btn-outline flex flex-col items-center gap-2 py-4">
+                                <button class="btn btn-outline flex flex-col items-center gap-2 py-4" data-learning-mode="random">
                                     <i class="fa fa-random text-xl"></i>
                                     <span>随机练习</span>
                                 </button>
-                                <button class="btn btn-outline flex flex-col items-center gap-2 py-4">
+                                <button class="btn btn-outline flex flex-col items-center gap-2 py-4" data-learning-mode="special">
                                     <i class="fa fa-search text-xl"></i>
                                     <span>专项练习</span>
                                 </button>
-                                <button class="btn btn-outline flex flex-col items-center gap-2 py-4">
+                                <button class="btn btn-outline flex flex-col items-center gap-2 py-4" data-learning-mode="wrong">
                                     <i class="fa fa-exclamation-triangle text-xl"></i>
                                     <span>错题练习</span>
                                 </button>
@@ -628,14 +628,14 @@
                         <div class="mb-6">
                             <h4 class="font-bold mb-4">专项练习</h4>
                             <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                <button class="btn btn-outline py-3">交通法规</button>
-                                <button class="btn btn-outline py-3">安全文明</button>
-                                <button class="btn btn-outline py-3">标志标线</button>
-                                <button class="btn btn-outline py-3">紧急情况</button>
-                                <button class="btn btn-outline py-3">灯光使用</button>
-                                <button class="btn btn-outline py-3">驾驶操作</button>
-                                <button class="btn btn-outline py-3">交通手势</button>
-                                <button class="btn btn-outline py-3">高速公路</button>
+                                <button class="btn btn-outline py-3" data-special="law.basic">交通法规</button>
+                                <button class="btn btn-outline py-3" data-special="safe.civilized">安全文明</button>
+                                <button class="btn btn-outline py-3" data-special="signs_markings">标志标线</button>
+                                <button class="btn btn-outline py-3" data-special="safe.emergency">紧急情况</button>
+                                <button class="btn btn-outline py-3" data-special="lights">灯光使用</button>
+                                <button class="btn btn-outline py-3" data-special="law.lanes">驾驶操作</button>
+                                <button class="btn btn-outline py-3" data-special="police_command">交通手势</button>
+                                <button class="btn btn-outline py-3" data-special="highway">高速公路</button>
                             </div>
                         </div>
                     </div>
@@ -1157,7 +1157,8 @@
                             <p><strong>今日计划：</strong>根据考试日期与剩余题量计算今日目标，并统计今日完成/正确率。</p>
                             <p><strong>题库（已优化）：</strong>支持搜索（题干/ID）、按状态/题型/知识点/收藏筛选、分页浏览，并支持“练习当前筛选（20题）”和“将筛选结果加入收藏”。</p>
                             <p><strong>题库视图切换（新）：</strong>支持“列表”与“按知识点”两种视图。切换后会自动回到题库区域顶部，避免你滚动在页面下方导致“看起来像没变化”。在“按知识点”视图里可查看每个知识点的掌握度、题量、未掌握数，并一键进入该知识点专项20题。</p>
-                            <p><strong>提示：</strong>题库页的“练习当前筛选（20题）/将筛选结果加入收藏”以及“模拟考试/错题管理/考前冲刺”等按钮都已接入可点击行为（原型版部分为占位提示，后续可接真实数据）。</p>
+                            <p><strong>学习模式选择（已接入可点击）：</strong>在「个性学习」页，顺序学习/随机练习会直接进入练题页；错题练习会进入错题队列；专项练习按钮会进入对应知识点专项20题。</p>
+                            <p><strong>顶部栏按钮（已接入可点击）：</strong>问号会跳转到使用说明；铃铛/设置目前为原型占位提示（后续可接提醒与设置面板）。</p>
                         </div>
                     </div>
 

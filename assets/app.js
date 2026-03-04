@@ -616,6 +616,65 @@ function bindEvents() {
     });
   }
 
+  // 顶部栏按钮
+  qsa('[data-top-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = btn.getAttribute('data-top-action');
+      if (act === 'help') {
+        showPage('help', '使用说明');
+        renderHelpTOC();
+        return;
+      }
+      if (act === 'notifications') {
+        alert('通知中心（原型占位）：后续可接学习提醒/错题复习提醒/诊断未完成提醒。');
+        return;
+      }
+      if (act === 'settings') {
+        alert('设置（原型占位）：后续可放考试目标分、智能锁定题数默认值、显示解析默认值等。');
+        return;
+      }
+    });
+  });
+
+  // 个性学习：学习模式选择
+  qsa('[data-learning-mode]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.getAttribute('data-learning-mode');
+      if (mode === 'order') {
+        practiceMode = 'all';
+        currentIndex = 0;
+        showPage('practice', '练题');
+        renderQuestion();
+        return;
+      }
+      if (mode === 'random') {
+        practiceMode = 'all';
+        currentIndex = Math.floor(Math.random() * QUESTIONS.length);
+        showPage('practice', '练题');
+        renderQuestion();
+        return;
+      }
+      if (mode === 'special') {
+        // 滚动到专项区域
+        const sec = document.querySelector('#learning h4.font-bold.mb-4');
+        sec?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+      if (mode === 'wrong') {
+        startWrongPractice();
+        return;
+      }
+    });
+  });
+
+  // 个性学习：专项练习按钮
+  qsa('[data-special]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const kid = btn.getAttribute('data-special');
+      startKnowledgePractice(kid, 20);
+    });
+  });
+
   // 模拟考试入口（先复用诊断/练题能力）
   qsa('[data-go-exam]').forEach(btn => {
     btn.addEventListener('click', () => {
