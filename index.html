@@ -960,11 +960,37 @@
                 <!-- 使用说明 -->
                 <div id="help" class="page-content hidden">
                     <div class="card mb-6">
-                        <h3 class="text-xl font-bold mb-2">使用说明（非常详细）</h3>
-                        <p class="text-neutral">本页面将带你从“第一次进入”到“诊断—加速—专项—错题消除—计划复盘”的完整路径，帮助你用最少时间提分。</p>
+                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                            <div>
+                                <h3 class="text-xl font-bold mb-2">使用说明（非常详细）</h3>
+                                <p class="text-neutral">本页面将带你从“第一次进入”到“诊断—加速—专项—错题消除—计划复盘”的完整路径，帮助你用最少时间提分。</p>
+                            </div>
+                            <div class="w-full md:w-80">
+                                <div class="relative">
+                                    <input id="help-search" type="text" placeholder="搜索：诊断/倒计时/ROI/错题/清空数据…" class="w-full border border-gray-300 rounded-md px-4 py-2 pl-10" />
+                                    <i class="fa fa-search absolute left-3 top-3 text-neutral"></i>
+                                </div>
+                                <p class="text-xs text-neutral mt-2">回车跳到下一处匹配；再次回车继续跳转。</p>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-wrap gap-2 mt-4" id="help-actions">
+                            <button class="btn btn-primary" data-help-action="start-diagnosis"><i class="fa fa-play-circle mr-2"></i>开始100题诊断</button>
+                            <button class="btn btn-outline" data-help-action="continue-diagnosis">继续诊断</button>
+                            <button class="btn btn-outline" data-help-action="go-smart">进入智能加速练习</button>
+                            <button class="btn btn-outline" data-help-action="go-wrong">打开错题本</button>
+                            <button class="btn btn-outline" data-help-action="go-plan">打开今日计划</button>
+                            <button class="btn btn-outline" data-help-action="go-bank">打开题库</button>
+                            <button class="btn btn-secondary" data-help-action="clear-data"><i class="fa fa-trash mr-2"></i>清空本地数据</button>
+                        </div>
                     </div>
 
-                    <div class="card mb-6">
+                    <div class="card mb-6" id="help-toc">
+                        <h4 class="text-lg font-bold mb-3">目录</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-primary" id="help-toc-links"></div>
+                    </div>
+
+                    <div class="card mb-6" data-help-section="1" id="help-s1">
                         <h4 class="text-lg font-bold mb-3">1. 推荐学习主流程（新手必看）</h4>
                         <ol class="list-decimal pl-6 space-y-2 text-neutral">
                             <li><strong>设置考试日期：</strong>去「首页」点击“预约考试”选择日期（影响今日目标与学习节奏）。</li>
@@ -976,7 +1002,7 @@
                         </ol>
                     </div>
 
-                    <div class="card mb-6">
+                    <div class="card mb-6" data-help-section="2" id="help-s2">
                         <h4 class="text-lg font-bold mb-3">2. 首页怎么用</h4>
                         <div class="space-y-3 text-neutral">
                             <p><strong>全局主按钮：</strong>首页右侧有一个主按钮，会根据你的状态自动变成：</p>
@@ -990,7 +1016,7 @@
                         </div>
                     </div>
 
-                    <div class="card mb-6">
+                    <div class="card mb-6" data-help-section="3" id="help-s3">
                         <h4 class="text-lg font-bold mb-3">3. 智能诊断（100题+45分钟）</h4>
                         <div class="space-y-3 text-neutral">
                             <p><strong>开始/继续/重置：</strong>诊断支持中途退出，下次继续；也支持重新开始（清空本次诊断）。</p>
@@ -1004,7 +1030,7 @@
                         </div>
                     </div>
 
-                    <div class="card mb-6">
+                    <div class="card mb-6" data-help-section="4" id="help-s4">
                         <h4 class="text-lg font-bold mb-3">4. 诊断报告怎么读</h4>
                         <div class="space-y-3 text-neutral">
                             <p><strong>预测得分（加权）：</strong>按知识点掌握度并结合题库考频权重计算，更能反映“高频短板”对分数的影响。</p>
@@ -1014,7 +1040,7 @@
                         </div>
                     </div>
 
-                    <div class="card mb-6">
+                    <div class="card mb-6" data-help-section="5" id="help-s5">
                         <h4 class="text-lg font-bold mb-3">5. 练题页怎么用（顺序/智能/错题/专项）</h4>
                         <div class="space-y-3 text-neutral">
                             <p><strong>模式切换：</strong>练题页右上角可切换：</p>
@@ -1031,7 +1057,7 @@
                         </div>
                     </div>
 
-                    <div class="card mb-6">
+                    <div class="card mb-6" data-help-section="6" id="help-s6">
                         <h4 class="text-lg font-bold mb-3">6. 错题本怎么用</h4>
                         <div class="space-y-3 text-neutral">
                             <p><strong>进入方式：</strong>左侧菜单「错题本」。</p>
@@ -1041,7 +1067,7 @@
                         </div>
                     </div>
 
-                    <div class="card mb-6">
+                    <div class="card mb-6" data-help-section="7" id="help-s7">
                         <h4 class="text-lg font-bold mb-3">7. 今日计划与题库页</h4>
                         <div class="space-y-3 text-neutral">
                             <p><strong>今日计划：</strong>根据考试日期与剩余题量计算今日目标，并统计今日完成/正确率。</p>
@@ -1049,7 +1075,7 @@
                         </div>
                     </div>
 
-                    <div class="card mb-6">
+                    <div class="card mb-6" data-help-section="8" id="help-s8">
                         <h4 class="text-lg font-bold mb-3">8. 数据存储与隐私（重要）</h4>
                         <div class="space-y-3 text-neutral">
                             <p><strong>本系统是纯静态原型：</strong>所有数据保存在你的浏览器 localStorage（不会上传服务器）。</p>
@@ -1057,7 +1083,7 @@
                         </div>
                     </div>
 
-                    <div class="card">
+                    <div class="card" data-help-section="9" id="help-s9">
                         <h4 class="text-lg font-bold mb-3">9. 常见问题（FAQ）</h4>
                         <div class="space-y-2 text-neutral">
                             <p><strong>Q：为什么题目会重复？</strong> A：当前是Mock题库，用于演示流程；真实题库接入后将不重复。</p>

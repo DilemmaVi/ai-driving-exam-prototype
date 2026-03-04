@@ -415,6 +415,9 @@ function bindEvents() {
       if (target === 'question-bank') {
         renderQuestionBank();
       }
+      if (target === 'help') {
+        renderHelpTOC();
+      }
     });
   });
 
@@ -1061,6 +1064,141 @@ function renderDiagnosisReport() {
     d.finishedAt = Date.now();
     setDiagnosis(d);
   }
+}
+
+function renderHelpTOC() {
+  const toc = qs('#help-toc-links');
+  if (!toc) return;
+
+  const sections = qsa('#help [data-help-section]');
+  toc.innerHTML = sections.map(sec => {
+    const id = sec.id;
+    const title = sec.querySelector('h4')?.textContent || id;
+    return `<button class="text-left hover:underline" data-help-jump="${id}">${title}</button>`;
+  }).join('');
+
+  qsa('[data-help-jump]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-help-jump');
+      const el = qs('#' + id);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  bindHelpActions();
+  bindHelpSearch();
+}
+
+let helpMatches = [];
+let helpMatchIndex = -1;
+
+function clearHighlights() {
+  qsa('#help mark[data-help-mark]').forEach(m => {
+    const text = document.createTextNode(m.textContent);
+    m.replaceWith(text);
+  });
+}
+
+function highlight(query) {
+  clearHighlights();
+  helpMatches = [];
+  helpMatchIndex = -1;
+  if (!query) return;
+
+  const container = qs('#help');
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const re = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+
+  let node;
+  while ((node = walker.nextNode())) {
+    const value = node.nodeValue;
+    if (!value || !re.test(value)) continue;
+
+    const span = document.createElement('span');
+    span.innerHTML = value.replace(re, (m) => `<mark data-help-mark="1" class="bg-yellow-200">${m}</mark>`);
+    node.parentNode.replaceChild(span, node);
+  }
+
+  helpMatches = qsa('#help mark[data-help-mark]');
+}
+
+function jumpNextMatch() {
+  if (!helpMatches.length) return;
+  helpMatchIndex = (helpMatchIndex + 1) % helpMatches.length;
+  const el = helpMatches[helpMatchIndex];
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function bindHelpSearch() {
+  const input = qs('#help-search');
+  if (!input) return;
+
+  input.addEventListener('input', () => {
+    highlight(input.value.trim());
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!helpMatches.length) highlight(input.value.trim());
+      jumpNextMatch();
+    }
+  });
+}
+
+function bindHelpActions() {
+  qsa('#help-actions [data-help-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = btn.getAttribute('data-help-action');
+      if (act === 'start-diagnosis') {
+        showPage('diagnosis', '智能诊断');
+        startDiagnosis(true);
+        return;
+      }
+      if (act === 'continue-diagnosis') {
+        showPage('diagnosis', '智能诊断');
+        startDiagnosis(false);
+        return;
+      }
+      if (act === 'go-smart') {
+        practiceMode = 'smart';
+        currentIndex = pickSmartIndex();
+        showPage('practice', '练题');
+        renderQuestion();
+        return;
+      }
+      if (act === 'go-wrong') {
+        showPage('wrongbook', '错题本');
+        renderWrongbook();
+        return;
+      }
+      if (act === 'go-plan') {
+        showPage('plan', '今日计划');
+        renderPlanPage();
+        return;
+      }
+      if (act === 'go-bank') {
+        showPage('question-bank', '题库');
+        renderQuestionBank();
+        return;
+      }
+      if (act === 'clear-data') {
+        const ok = confirm('确认清空本地数据？此操作会删除学习记录/错题/收藏/诊断/掌握度等（仅本机浏览器）。');
+        if (!ok) return;
+        // 逐项清空（不直接依赖 storage.js 的 clearAllData 以避免循环import）
+        const keys = [
+          'qa.examDate','qa.progress','qa.favorites','qa.notes','qa.wrong','qa.wrongStreak','qa.daily',
+          'qa.knowledgeMastery','qa.diagnosis','qa.settings'
+        ];
+        keys.forEach(k => localStorage.removeItem(k));
+        alert('已清空本地数据。');
+        renderStats();
+        renderPlanSummary();
+        renderGlobalCTA();
+        return;
+      }
+    });
+  });
 }
 
 function renderWrongbook() {
