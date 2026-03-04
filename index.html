@@ -802,6 +802,10 @@
                                     <option value="priority">默认排序</option>
                                     <option value="id">按ID</option>
                                 </select>
+                                <select id="bank-view" class="border border-gray-300 rounded-md px-3 py-2">
+                                    <option value="list" selected>列表</option>
+                                    <option value="knowledge">按知识点</option>
+                                </select>
                             </div>
                         </div>
 
@@ -817,6 +821,7 @@
                             </div>
                         </div>
 
+                        <div class="mt-6 space-y-3 hidden" id="bank-knowledge-view"></div>
                         <div class="mt-6 space-y-3" id="bank-list"></div>
                     </div>
                 </div>
@@ -1151,6 +1156,7 @@
                         <div class="space-y-3 text-neutral">
                             <p><strong>今日计划：</strong>根据考试日期与剩余题量计算今日目标，并统计今日完成/正确率。</p>
                             <p><strong>题库（已优化）：</strong>支持搜索（题干/ID）、按状态/题型/知识点/收藏筛选、分页浏览，并支持“练习当前筛选（20题）”和“将筛选结果加入收藏”。</p>
+                            <p><strong>题库视图切换（新）：</strong>支持“列表”与“按知识点”两种视图。在“按知识点”视图里可查看每个知识点的掌握度、题量、未掌握数，并一键进入该知识点专项20题。</p>
                         </div>
                     </div>
 

@@ -1406,6 +1406,7 @@ const bankState = {
   knowledge: 'all',
   favOnly: false,
   sort: 'priority',
+  view: 'list',
   page: 1,
   pageSize: 20
 };
@@ -1479,8 +1480,108 @@ function startPracticeWithList(list, title = '练题') {
   renderQuestion();
 }
 
+function renderKnowledgeView(allList) {
+  const wrap = qs('#bank-knowledge-view');
+  if (!wrap) return;
+  const progress = getProgress();
+
+  // 聚合统计
+  const groups = {};
+  for (const q of allList) {
+    const kid = q.knowledgeId || 'law.basic';
+    (groups[kid] ||= []).push(q);
+  }
+
+  const km = getKnowledgeMastery();
+
+  wrap.innerHTML = Object.keys(KNOWLEDGE_DICT).map(kid => {
+    const list = groups[kid] || [];
+    const total = list.length;
+    const answered = list.filter(q => progress.answered?.[q.id]).length;
+    const wrong = list.filter(q => progress.answered?.[q.id] && progress.answered[q.id].correct === false).length;
+    const mastery = km[kid]?.mastery;
+    const mText = (typeof mastery === 'number') ? `${Math.round(mastery * 100)}%` : '—';
+
+    return `
+      <div class="border border-gray-200 rounded-lg overflow-hidden">
+        <button class="w-full text-left px-4 py-3 bg-gray-50 hover:bg-gray-100 flex items-center justify-between" data-k-toggle="${kid}">
+          <div>
+            <p class="font-medium">${KNOWLEDGE_DICT[kid]}</p>
+            <p class="text-sm text-neutral mt-1">掌握度：${mText} · 已做：${answered}/${total} · 未掌握：${wrong}</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="btn btn-outline" data-k-practice="${kid}">专项20题</button>
+            <i class="fa fa-chevron-down text-neutral"></i>
+          </div>
+        </button>
+        <div class="hidden p-4 space-y-2" id="k-panel-${kid}"></div>
+      </div>
+    `;
+  }).join('');
+
+  // 展开/收起
+  qsa('[data-k-toggle]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      // 避免点到专项按钮也触发展开
+      if (e.target?.getAttribute && e.target.getAttribute('data-k-practice')) return;
+      const kid = btn.getAttribute('data-k-toggle');
+      const panel = qs('#k-panel-' + kid);
+      if (!panel) return;
+      const open = !panel.classList.contains('hidden');
+      if (open) {
+        panel.classList.add('hidden');
+        return;
+      }
+
+      // 懒渲染该知识点下的题目
+      const list = (groups[kid] || []).slice(0, 30); // 先展示前30条，避免太长
+      panel.innerHTML = list.map(q => {
+        const a = progress.answered?.[q.id];
+        const status = a ? (a.correct ? '<span class="badge badge-success">已掌握</span>' : '<span class="badge badge-error">未掌握</span>') : '<span class="badge">未做</span>';
+        const stem = String(q.stem || '');
+        const shortStem = stem.length > 60 ? stem.slice(0, 60) + '…' : stem;
+        return `
+          <div class="flex items-center justify-between gap-3 border border-gray-200 rounded-lg p-3">
+            <div>
+              <p class="text-sm text-neutral">${q.id} · ${(q.type === 'tf' ? '判断' : '单选')}</p>
+              <p class="font-medium mt-1">${shortStem}</p>
+              <div class="mt-2">${status}</div>
+            </div>
+            <div>
+              <button class="btn btn-outline" data-bank-go="${q.id}">去做题</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+      panel.classList.remove('hidden');
+
+      // 绑定“去做题”
+      qsa('#k-panel-' + kid + ' [data-bank-go]').forEach(b => {
+        b.addEventListener('click', () => {
+          const id = b.getAttribute('data-bank-go');
+          const idx = QUESTIONS.findIndex(x => x.id === id);
+          practiceMode = 'all';
+          currentIndex = Math.max(0, idx);
+          showPage('practice', '练题');
+          renderQuestion();
+        });
+      });
+    });
+  });
+
+  // 专项
+  qsa('[data-k-practice]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const kid = btn.getAttribute('data-k-practice');
+      startKnowledgePractice(kid, 20);
+    });
+  });
+}
+
 function renderQuestionBank() {
   const wrap = qs('#bank-list');
+  const kv = qs('#bank-knowledge-view');
   const meta = qs('#bank-meta');
   const pageEl = qs('#bank-page');
   const progress = getProgress();
@@ -1499,6 +1600,20 @@ function renderQuestionBank() {
 
   const all = bankFiltered();
   const total = all.length;
+
+  // 视图切换
+  if (bankState.view === 'knowledge') {
+    if (wrap) wrap.classList.add('hidden');
+    if (kv) kv.classList.remove('hidden');
+    if (meta) meta.textContent = `共 ${QUESTIONS.length} 题 · 当前筛选 ${total} 题 · 视图：按知识点`;
+    if (pageEl) pageEl.textContent = `—`;
+    renderKnowledgeView(all);
+    return;
+  }
+
+  if (wrap) wrap.classList.remove('hidden');
+  if (kv) kv.classList.add('hidden');
+
   const pages = Math.max(1, Math.ceil(total / bankState.pageSize));
   bankState.page = Math.max(1, Math.min(bankState.page, pages));
 
@@ -1573,6 +1688,13 @@ function renderQuestionBank() {
     sort.dataset.bound = '1';
     sort.addEventListener('change', () => { bankState.sort = sort.value; bankState.page = 1; renderQuestionBank(); });
   }
+
+  const view = qs('#bank-view');
+  if (view && !view.dataset.bound) {
+    view.dataset.bound = '1';
+    view.addEventListener('change', () => { bankState.view = view.value; bankState.page = 1; renderQuestionBank(); });
+  }
+
   const prev = qs('#bank-prev');
   if (prev && !prev.dataset.bound) {
     prev.dataset.bound = '1';
