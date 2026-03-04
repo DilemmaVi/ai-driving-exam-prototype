@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全安智能驾考系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#1890FF',
+                        success: '#52C41A',
+                        warning: '#FAAD14',
+                        error: '#F5222D',
+                        neutral: '#8C8C8C',
+                        'bg-light': '#F5F5F5',
+                        'card-bg': '#FFFFFF',
+                    },
+                    fontFamily: {
+                        sans: ['Source Sans Pro', 'sans-serif'],
+                    },
+                },
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .progress-bar {
+                @apply h-2 rounded-full bg-gray-200 overflow-hidden;
+            }
+            .progress-bar-fill {
+                @apply h-full bg-primary rounded-full transition-all duration-500 ease-in-out;
+            }
+            .card {
+                @apply bg-card-bg rounded-lg shadow-md p-6 transition-all duration-300 hover:shadow-lg;
+            }
+            .btn {
+                @apply px-4 py-2 rounded-md font-medium transition-all duration-300;
+            }
+            .btn-primary {
+                @apply bg-primary text-white hover:bg-primary/90;
+            }
+            .btn-secondary {
+                @apply bg-gray-100 text-gray-700 hover:bg-gray-200;
+            }
+            .btn-outline {
+                @apply border border-primary text-primary hover:bg-primary/10;
+            }
+            .btn-success {
+                @apply bg-success text-white hover:bg-success/90;
+            }
+            .badge {
+                @apply px-2 py-1 text-xs rounded-full font-medium;
+            }
+            .badge-success {
+                @apply bg-success/10 text-success;
+            }
+            .badge-warning {
+                @apply bg-warning/10 text-warning;
+            }
+            .badge-error {
+                @apply bg-error/10 text-error;
+            }
+            .nav-item {
+                @apply flex items-center gap-2 px-4 py-3 rounded-lg transition-all duration-300 hover:bg-primary/10 cursor-pointer;
+            }
+            .nav-item.active {
+                @apply bg-primary/10 text-primary font-medium;
+            }
+            .question-option {
+                @apply flex items-center gap-3 p-3 border border-gray-200 rounded-md cursor-pointer transition-all duration-300 hover:border-primary;
+            }
+            .question-option.selected {
+                @apply border-primary bg-primary/5;
+            }
+            .question-option.correct {
+                @apply border-success bg-success/5;
+            }
+            .question-option.incorrect {
+                @apply border-error bg-error/5;
+            }
+        }
+    </style>
+</head>
+<body class="bg-bg-light min-h-screen">
+    <!-- 模式选择页面 -->
+    <div id="mode-selection" class="min-h-screen flex flex-col items-center justify-center p-6">
+        <div class="w-full max-w-2xl">
+            <div class="text-center mb-8">
+                <h1 class="text-3xl font-bold text-primary flex items-center justify-center gap-2 mb-4">
+                    <i class="fa fa-car"></i>
+                    <span>全安智能驾考系统</span>
+                </h1>
+                <p class="text-neutral text-lg">请选择适合您的学习模式，开始您的驾考之旅</p>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="border border-gray-200 rounded-lg p-8 hover:border-primary transition-all cursor-pointer">
+                    <div class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-6 mx-auto">
+                        <i class="fa fa-graduation-cap text-primary text-3xl"></i>
+                    </div>
+                    <h4 class="text-xl font-bold mb-3 text-center">自由学习模式</h4>
+                    <p class="text-neutral mb-6 text-center">经典模式：辅导老师自由选择教学方式</p>
+                    <button class="btn btn-primary w-full" id="free-mode-btn">选择自由学习</button>
+                </div>
+                
+                <div class="border border-gray-200 rounded-lg p-8 hover:border-primary transition-all cursor-pointer">
+                    <div class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-6 mx-auto">
+                        <i class="fa fa-lightbulb-o text-primary text-3xl"></i>
+                    </div>
+                    <h4 class="text-xl font-bold mb-3 text-center">智能模式</h4>
+                    <p class="text-neutral mb-6 text-center">基于AI智能算法，为您定制个性化学习方案</p>
+                    <button class="btn btn-primary w-full" id="smart-mode-btn">选择智能模式</button>
+                </div>
+            </div>
+            
+            <!-- 智能模式流程 -->
+            <div id="smart-mode-flow" class="card mt-8 hidden">
+                <h3 class="text-xl font-bold mb-4">智能模式</h3>
+                <div class="mb-6">
+                    <h4 class="font-bold mb-3">选择账号状态</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <button class="btn btn-outline flex items-center justify-center gap-2 py-4" id="continue-btn">
+                            <i class="fa fa-play-circle"></i>
+                            <span>继续学习</span>
+                        </button>
+                        <button class="btn btn-outline flex items-center justify-center gap-2 py-4" id="new-account-btn">
+                            <i class="fa fa-user-plus"></i>
+                            <span>新账号</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 新账号创建 -->
+                <div id="new-account-flow" class="border-t border-gray-200 pt-6 mb-6 hidden">
+                    <h4 class="font-bold mb-3">创建账号</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <button class="btn btn-outline flex items-center justify-center gap-2 py-4" id="create-manual-btn">
+                            <i class="fa fa-edit"></i>
+                            <span>自行创建</span>
+                        </button>
+                        <button class="btn btn-outline flex items-center justify-center gap-2 py-4" id="create-scan-btn">
+                            <i class="fa fa-qrcode"></i>
+                            <span>扫码绑定创建</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 车型选择 -->
+                <div id="car-type-flow" class="border-t border-gray-200 pt-6 mb-6 hidden">
+                    <h4 class="font-bold mb-3">选择车型</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <button class="btn btn-outline flex flex-col items-center gap-2 py-4" data-car-type="C1,C2">
+                            <i class="fa fa-car text-xl"></i>
+                            <span>小车 C1/C2</span>
+                        </button>
+                        <button class="btn btn-outline flex flex-col items-center gap-2 py-4" data-car-type="A2,B2">
+                            <i class="fa fa-truck text-xl"></i>
+                            <span>货车 A2/B2</span>
+                        </button>
+                        <button class="btn btn-outline flex flex-col items-center gap-2 py-4" data-car-type="A1,B1">
+                            <i class="fa fa-bus text-xl"></i>
+                            <span>客车 A1/B1</span>
+                        </button>
+                        <button class="btn btn-outline flex flex-col items-center gap-2 py-4" data-car-type="D,E">
+                            <i class="fa fa-motorcycle text-xl"></i>
+                            <span>摩托车 D/E</span>
+                        </button>
+                        <button class="btn btn-outline flex flex-col items-center gap-2 py-4" data-car-type="C6">
+                            <i class="fa fa-car text-xl"></i>
+                            <span>轻型牵引挂车 C6</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 科目选择（小车C1/C2） -->
+                <div id="subject-choice-car" class="border-t border-gray-200 pt-6 mb-6 hidden">
+                    <h4 class="font-bold mb-3">选择科目/功能</h4>
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        <button class="btn btn-outline py-3" data-subject="1">科目一</button>
+                        <button class="btn btn-outline py-3" data-subject="2">科目二</button>
+                        <button class="btn btn-outline py-3" data-subject="3">科目三</button>
+                        <button class="btn btn-outline py-3" data-subject="4">科目四</button>
+                        <button class="btn btn-outline py-3" data-subject="5">三力测试</button>
+                        <button class="btn btn-outline py-3" data-subject="6">学法减分</button>
+                    </div>
+                </div>
+                
+                <!-- 科目选择（其他车型） -->
+                <div id="subject-choice-other" class="border-t border-gray-200 pt-6 mb-6 hidden">
+                    <h4 class="font-bold mb-3">选择科目</h4>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <button class="btn btn-outline py-3" data-subject="1">科目一</button>
+                        <button class="btn btn-outline py-3" data-subject="2">科目二</button>
+                        <button class="btn btn-outline py-3" data-subject="3">科目三</button>
+                        <button class="btn btn-outline py-3" data-subject="4">科目四</button>
+                    </div>
+                </div>
+                
+                <!-- 约考状态选择 -->
+                <div id="exam-status-flow" class="border-t border-gray-200 pt-6 mb-6 hidden">
+                    <h4 class="font-bold mb-3">是否已经约考</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <button class="btn btn-outline flex items-center justify-center gap-2 py-4" id="exam-scheduled-btn">
+                            <i class="fa fa-check-circle"></i>
+                            <span>已约考</span>
+                        </button>
+                        <button class="btn btn-outline flex items-center justify-center gap-2 py-4" id="exam-not-scheduled-btn">
+                            <i class="fa fa-times-circle"></i>
+                            <span>未约考</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 考试时间选择 -->
+                <div id="exam-time-flow" class="border-t border-gray-200 pt-6 mb-6 hidden">
+                    <h4 class="font-bold mb-3">考试时间</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <button class="btn btn-outline flex items-center justify-center gap-2 py-4" id="exam-soon-btn">
+                            <i class="fa fa-clock-o"></i>
+                            <span>考试时间剩余1天以内</span>
+                        </button>
+                        <button class="btn btn-outline flex items-center justify-center gap-2 py-4" id="exam-later-btn">
+                            <i class="fa fa-calendar"></i>
+                            <span>考试时间剩余1天及以上</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 基础分档 -->
+                <div id="level-flow" class="border-t border-gray-200 pt-6 mb-6 hidden">
+                    <h4 class="font-bold mb-3">基础分档</h4>
+                    <div class="space-y-3">
+                        <button class="btn btn-outline w-full text-left py-3" data-level="<40">
+                            <span>基础差：39分以下</span>
+                        </button>
+                        <button class="btn btn-outline w-full text-left py-3" data-level="40-49">
+                            <span>基础不好：40-49分</span>
+                        </button>
+                        <button class="btn btn-outline w-full text-left py-3" data-level="50-69">
+                            <span>基础较好：50-69分</span>
+                        </button>
+                        <button class="btn btn-outline w-full text-left py-3" data-level="70-79">
+                            <span>基础好：70-79分</span>
+                        </button>
+                        <button class="btn btn-outline w-full text-left py-3" data-level="80+">
+                            <span>基础非常好：80-89以上分</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 学习路径 -->
+                <div id="learning-path-flow" class="border-t border-gray-200 pt-6 hidden">
+                    <h4 class="font-bold mb-3">学习路径</h4>
+                    <div class="bg-gray-50 p-4 rounded-lg mb-4" id="path-info">
+                        <p>请选择基础分档查看学习路径</p>
+                    </div>
+                    <div class="flex justify-end">
+                        <button class="btn btn-primary" id="start-learning-btn">开始学习</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 自由学习模式流程 -->
+            <div id="free-mode-flow" class="card mt-8 hidden">
+                <h3 class="text-xl font-bold mb-4">自由学习模式</h3>
+                <p class="text-neutral mb-6">经典模式：辅导老师自由选择教学方式</p>
+                
+                <div class="flex justify-center mb-6">
+                    <button class="btn btn-primary text-lg px-8 py-3" id="start-free-learning-btn">
+                        <i class="fa fa-play-circle mr-2"></i>开始学习
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 主应用界面 -->
+    <div id="main-app" class="flex h-screen overflow-hidden hidden">
+        <!-- 侧边导航 -->
+        <aside class="w-64 bg-white border-r border-gray-200 flex flex-col">
+            <!-- 品牌标识 -->
+            <div class="p-4 border-b border-gray-200">
+                <h1 class="text-xl font-bold text-primary flex items-center gap-2">
+                    <i class="fa fa-car"></i>
+                    <span>全安智能驾考系统</span>
+                </h1>
+            </div>
+            
+            <!-- 导航菜单 -->
+            <nav class="flex-1 overflow-y-auto p-4">
+                <div class="space-y-1">
+                        <div class="nav-item active" data-target="home">
+                            <i class="fa fa-home w-5 text-center"></i>
+                            <span>首页</span>
+                        </div>
+                        <div class="nav-item" data-target="diagnosis">
+                            <i class="fa fa-stethoscope w-5 text-center"></i>
+                            <span>智能诊断</span>
+                        </div>
+                        <div class="nav-item" data-target="learning">
+                            <i class="fa fa-book w-5 text-center"></i>
+                            <span>个性学习</span>
+                        </div>
+                        <div class="nav-item" data-target="exam">
+                            <i class="fa fa-pencil-square-o w-5 text-center"></i>
+                            <span>模拟考试</span>
+                        </div>
+                        <div class="nav-item" data-target="wrong-questions">
+                            <i class="fa fa-exclamation-triangle w-5 text-center"></i>
+                            <span>错题管理</span>
+                        </div>
+                        <div class="nav-item" data-target="crash-course">
+                            <i class="fa fa-bolt w-5 text-center"></i>
+                            <span>考前冲刺</span>
+                        </div>
+                        <div class="nav-item" data-target="report">
+                            <i class="fa fa-bar-chart w-5 text-center"></i>
+                            <span>学习报告</span>
+                        </div>
+                    </div>
+            </nav>
+            
+            <!-- 用户信息 -->
+            <div class="p-4 border-t border-gray-200">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                        <i class="fa fa-user text-primary"></i>
+                    </div>
+                    <div>
+                        <p class="font-medium">张三</p>
+                        <p class="text-xs text-neutral">C1 科目一</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+        
+        <!-- 主内容区域 -->
+        <main class="flex-1 overflow-y-auto">
+            <!-- 顶部栏 -->
+            <header class="bg-white border-b border-gray-200 p-4 flex justify-between items-center">
+                <div class="flex items-center gap-4">
+                    <h2 class="text-xl font-bold" id="page-title">首页</h2>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="relative">
+                        <button class="p-2 rounded-full hover:bg-gray-100">
+                            <i class="fa fa-bell text-neutral"></i>
+                            <span class="absolute top-1 right-1 w-2 h-2 bg-error rounded-full"></span>
+                        </button>
+                    </div>
+                    <div class="relative">
+                        <button class="p-2 rounded-full hover:bg-gray-100">
+                            <i class="fa fa-question-circle text-neutral"></i>
+                        </button>
+                    </div>
+                    <div class="relative">
+                        <button class="p-2 rounded-full hover:bg-gray-100">
+                            <i class="fa fa-cog text-neutral"></i>
+                        </button>
+                    </div>
+                </div>
+            </header>
+            
+            <!-- 页面内容 -->
+            <div class="p-6">
+                <!-- 首页 -->
+                <div id="home" class="page-content">
+                    <!-- 欢迎卡片 -->
+                    <div class="card mb-6">
+                        <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                            <div>
+                                <h3 class="text-2xl font-bold">欢迎回来，张三！</h3>
+                                <p class="text-neutral mt-1">今天是 <span id="current-date">2026年3月4日</span>，距离考试还有 <span class="text-primary font-medium">7天</span></p>
+                                <div class="mt-4">
+                                    <p class="font-medium">当前学习进度</p>
+                                    <div class="progress-bar mt-2">
+                                        <div class="progress-bar-fill" style="width: 65%"></div>
+                                    </div>
+                                    <p class="text-sm text-neutral mt-1">已完成 325/500 题</p>
+                                </div>
+                            </div>
+                            <div class="flex gap-3">
+                                <button class="btn btn-primary">
+                                    <i class="fa fa-play-circle mr-2"></i>继续学习
+                                </button>
+                                <button class="btn btn-outline" id="appointment-btn">
+                                    <i class="fa fa-calendar mr-2"></i>预约考试
+                                </button>
+                                
+                                <!-- 日期选择器弹窗 -->
+                                <div id="date-picker-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+                                    <div class="bg-white rounded-lg p-6 w-full max-w-md">
+                                        <h3 class="text-lg font-bold mb-4">选择考试日期</h3>
+                                        <input type="date" id="exam-date" class="w-full border border-gray-300 rounded-md px-4 py-2 mb-4">
+                                        <div class="flex justify-end gap-3">
+                                            <button id="cancel-date" class="btn btn-secondary">取消</button>
+                                            <button id="confirm-date" class="btn btn-primary">确定</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 学习概览 -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                        <div class="card">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-neutral">学习天数</p>
+                                    <h4 class="text-2xl font-bold mt-1">25</h4>
+                                </div>
+                                <div class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                                    <i class="fa fa-calendar text-primary text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-neutral">做题总数</p>
+                                    <h4 class="text-2xl font-bold mt-1">1,250</h4>
+                                </div>
+                                <div class="w-12 h-12 rounded-full bg-success/10 flex items-center justify-center">
+                                    <i class="fa fa-list-alt text-success text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-neutral">正确率</p>
+                                    <h4 class="text-2xl font-bold mt-1">82%</h4>
+                                </div>
+                                <div class="w-12 h-12 rounded-full bg-warning/10 flex items-center justify-center">
+                                    <i class="fa fa-check-circle text-warning text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-neutral">模拟次数</p>
+                                    <h4 class="text-2xl font-bold mt-1">8</h4>
+                                </div>
+                                <div class="w-12 h-12 rounded-full bg-error/10 flex items-center justify-center">
+                                    <i class="fa fa-file-text-o text-error text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 学习推荐 -->
+                    <div class="card mb-6">
+                        <h3 class="text-lg font-bold mb-4">今日学习推荐</h3>
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-primary transition-all">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                                        <i class="fa fa-book text-primary"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-medium">安全文明驾驶（薄弱）</h4>
+                                        <p class="text-sm text-neutral">预计用时 20分钟</p>
+                                    </div>
+                                </div>
+                                <button class="btn btn-primary">开始练习</button>
+                            </div>
+                            <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-primary transition-all">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                                        <i class="fa fa-book text-primary"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-medium">紧急情况处理（薄弱）</h4>
+                                        <p class="text-sm text-neutral">预计用时 15分钟</p>
+                                    </div>
+                                </div>
+                                <button class="btn btn-primary">开始练习</button>
+                            </div>
+                            <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-primary transition-all">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                                        <i class="fa fa-book text-primary"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-medium">交通标志识别（较好）</h4>
+                                        <p class="text-sm text-neutral">预计用时 10分钟</p>
+                                    </div>
+                                </div>
+                                <button class="btn btn-primary">开始练习</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 学习数据 -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="card">
+                            <h3 class="text-lg font-bold mb-4">学习时长趋势</h3>
+                            <div class="h-64">
+                                <canvas id="studyTimeChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <h3 class="text-lg font-bold mb-4">成绩变化</h3>
+                            <div class="h-64">
+                                <canvas id="scoreChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 智能诊断 -->
+                <div id="diagnosis" class="page-content hidden">
+                    <div class="card mb-6">
+                        <h3 class="text-xl font-bold mb-4">智能诊断</h3>
+                        <p class="text-neutral mb-6">通过50道代表性题目，快速评估您的知识水平，为您定制个性化学习方案。</p>
+                        
+                        <div class="flex justify-center mb-6">
+                            <button class="btn btn-primary text-lg px-8 py-3">
+                                <i class="fa fa-play-circle mr-2"></i>开始诊断测试
+                            </button>
+                        </div>
+                        
+                        <div class="border-t border-gray-200 pt-6">
+                            <h4 class="font-bold mb-4">诊断报告</h4>
+                            
+                            <div class="mb-6">
+                                <div class="flex justify-between mb-2">
+                                    <span class="font-medium">总分：68分</span>
+                                    <span>68%</span>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-bar-fill" style="width: 68%"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-6">
+                                <h5 class="font-medium mb-3">知识掌握度分析</h5>
+                                <div class="space-y-3">
+                                    <div>
+                                        <div class="flex justify-between mb-1">
+                                            <span>交通法规</span>
+                                            <span>78%</span>
+                                        </div>
+                                        <div class="progress-bar">
+                                            <div class="progress-bar-fill" style="width: 78%"></div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="flex justify-between mb-1">
+                                            <span>安全文明</span>
+                                            <span>45% <span class="text-warning">⚠️ 薄弱</span></span>
+                                        </div>
+                                        <div class="progress-bar">
+                                            <div class="progress-bar-fill" style="width: 45%"></div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="flex justify-between mb-1">
+                                            <span>标志标线</span>
+                                            <span>85%</span>
+                                        </div>
+                                        <div class="progress-bar">
+                                            <div class="progress-bar-fill" style="width: 85%"></div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="flex justify-between mb-1">
+                                            <span>紧急情况</span>
+                                            <span>40% <span class="text-warning">⚠️ 薄弱</span></span>
+                                        </div>
+                                        <div class="progress-bar">
+                                            <div class="progress-bar-fill" style="width: 40%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-6">
+                                <h5 class="font-medium mb-2">AI建议</h5>
+                                <div class="bg-gray-50 p-4 rounded-lg">
+                                    <p>您的交通法规基础较好，但安全文明和紧急情况处理需要重点加强。建议先学习500道精选题目，重点关注错题涉及的知识点。</p>
+                                </div>
+                            </div>
+                            
+                            <div class="flex gap-3">
+                                <button class="btn btn-primary">开始个性化学习</button>
+                                <button class="btn btn-outline">查看详细分析</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 个性学习 -->
+                <div id="learning" class="page-content hidden">
+                    <div class="card mb-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-xl font-bold">个性学习中心</h3>
+                            <div class="bg-primary/10 text-primary px-3 py-1 rounded-full text-sm font-medium">
+                                今日目标: 50/100题
+                            </div>
+                        </div>
+                        
+                        <div class="mb-6">
+                            <div class="flex justify-between mb-2">
+                                <span class="font-medium">当前学习路径：系统学习（500题）</span>
+                                <span>65% 325/500题</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-bar-fill" style="width: 65%"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-6">
+                            <h4 class="font-bold mb-4">今日推荐</h4>
+                            <div class="space-y-4">
+                                <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-primary transition-all">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                                            <i class="fa fa-book text-primary"></i>
+                                        </div>
+                                        <div>
+                                            <h5 class="font-medium">安全文明驾驶（薄弱）</h5>
+                                            <p class="text-sm text-neutral">预计用时 20分钟</p>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-primary">开始练习</button>
+                                </div>
+                                <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-primary transition-all">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                                            <i class="fa fa-book text-primary"></i>
+                                        </div>
+                                        <div>
+                                            <h5 class="font-medium">紧急情况处理（薄弱）</h5>
+                                            <p class="text-sm text-neutral">预计用时 15分钟</p>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-primary">开始练习</button>
+                                </div>
+                                <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-primary transition-all">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                                            <i class="fa fa-book text-primary"></i>
+                                        </div>
+                                        <div>
+                                            <h5 class="font-medium">交通标志识别（较好）</h5>
+                                            <p class="text-sm text-neutral">预计用时 10分钟</p>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-primary">开始练习</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-6">
+                            <h4 class="font-bold mb-4">学习模式选择</h4>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <button class="btn btn-outline flex flex-col items-center gap-2 py-4">
+                                    <i class="fa fa-list-ol text-xl"></i>
+                                    <span>顺序学习</span>
+                                </button>
+                                <button class="btn btn-outline flex flex-col items-center gap-2 py-4">
+                                    <i class="fa fa-random text-xl"></i>
+                                    <span>随机练习</span>
+                                </button>
+                                <button class="btn btn-outline flex flex-col items-center gap-2 py-4">
+                                    <i class="fa fa-search text-xl"></i>
+                                    <span>专项练习</span>
+                                </button>
+                                <button class="btn btn-outline flex flex-col items-center gap-2 py-4">
+                                    <i class="fa fa-exclamation-triangle text-xl"></i>
+                                    <span>错题练习</span>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-6">
+                            <h4 class="font-bold mb-4">专项练习</h4>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <button class="btn btn-outline py-3">交通法规</button>
+                                <button class="btn btn-outline py-3">安全文明</button>
+                                <button class="btn btn-outline py-3">标志标线</button>
+                                <button class="btn btn-outline py-3">紧急情况</button>
+                                <button class="btn btn-outline py-3">灯光使用</button>
+                                <button class="btn btn-outline py-3">驾驶操作</button>
+                                <button class="btn btn-outline py-3">交通手势</button>
+                                <button class="btn btn-outline py-3">高速公路</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 模拟考试 -->
+                <div id="exam" class="page-content hidden">
+                    <div class="card mb-6">
+                        <h3 class="text-xl font-bold mb-4">模拟考试</h3>
+                        <p class="text-neutral mb-6">模拟真实考试环境，检验您的学习成果。</p>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                            <div class="border border-gray-200 rounded-lg p-6 hover:border-primary transition-all">
+                                <h4 class="font-bold mb-3">标准考试</h4>
+                                <p class="text-neutral mb-4">100道题，45分钟</p>
+                                <button class="btn btn-primary w-full">开始考试</button>
+                            </div>
+                            <div class="border border-gray-200 rounded-lg p-6 hover:border-primary transition-all">
+                                <h4 class="font-bold mb-3">快速测试</h4>
+                                <p class="text-neutral mb-4">50道题，20分钟</p>
+                                <button class="btn btn-primary w-full">开始测试</button>
+                            </div>
+                        </div>
+                        
+                        <div class="border-t border-gray-200 pt-6">
+                            <h4 class="font-bold mb-4">历史考试记录</h4>
+                            <div class="overflow-x-auto">
+                                <table class="w-full">
+                                    <thead>
+                                        <tr class="border-b border-gray-200">
+                                            <th class="text-left py-3 px-4">考试时间</th>
+                                            <th class="text-left py-3 px-4">类型</th>
+                                            <th class="text-left py-3 px-4">得分</th>
+                                            <th class="text-left py-3 px-4">状态</th>
+                                            <th class="text-left py-3 px-4">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr class="border-b border-gray-200">
+                                            <td class="py-3 px-4">2026-03-03 14:30</td>
+                                            <td class="py-3 px-4">标准考试</td>
+                                            <td class="py-3 px-4">85分</td>
+                                            <td class="py-3 px-4"><span class="badge badge-success">通过</span></td>
+                                            <td class="py-3 px-4"><button class="text-primary hover:underline">查看详情</button></td>
+                                        </tr>
+                                        <tr class="border-b border-gray-200">
+                                            <td class="py-3 px-4">2026-03-02 10:15</td>
+                                            <td class="py-3 px-4">快速测试</td>
+                                            <td class="py-3 px-4">72分</td>
+                                            <td class="py-3 px-4"><span class="badge badge-success">通过</span></td>
+                                            <td class="py-3 px-4"><button class="text-primary hover:underline">查看详情</button></td>
+                                        </tr>
+                                        <tr class="border-b border-gray-200">
+                                            <td class="py-3 px-4">2026-03-01 16:45</td>
+                                            <td class="py-3 px-4">标准考试</td>
+                                            <td class="py-3 px-4">65分</td>
+                                            <td class="py-3 px-4"><span class="badge badge-error">未通过</span></td>
+                                            <td class="py-3 px-4"><button class="text-primary hover:underline">查看详情</button></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 错题管理 -->
+                <div id="wrong-questions" class="page-content hidden">
+                    <div class="card mb-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-xl font-bold">错题管理</h3>
+                            <div class="flex gap-3">
+                                <button class="btn btn-outline">
+                                    <i class="fa fa-refresh mr-2"></i>重新练习
+                                </button>
+                                <button class="btn btn-outline">
+                                    <i class="fa fa-trash mr-2"></i>清空错题
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-6">
+                            <div class="flex justify-between mb-4">
+                                <div class="flex gap-2">
+                                    <button class="btn btn-outline active">全部</button>
+                                    <button class="btn btn-outline">交通法规</button>
+                                    <button class="btn btn-outline">安全文明</button>
+                                    <button class="btn btn-outline">标志标线</button>
+                                    <button class="btn btn-outline">紧急情况</button>
+                                </div>
+                                <div class="relative">
+                                    <input type="text" placeholder="搜索错题" class="border border-gray-300 rounded-md px-4 py-2 pl-10">
+                                    <i class="fa fa-search absolute left-3 top-3 text-neutral"></i>
+                                </div>
+                            </div>
+                            
+                            <div class="space-y-4">
+                                <div class="border border-gray-200 rounded-lg p-4">
+                                    <div class="flex justify-between mb-3">
+                                        <span class="font-medium">交通法规</span>
+                                        <span class="text-sm text-neutral">2026-03-03</span>
+                                    </div>
+                                    <p class="mb-3">驾驶机动车在道路上违反道路交通安全法的行为，属于什么行为？</p>
+                                    <div class="space-y-2 mb-3">
+                                        <div class="question-option incorrect">
+                                            <input type="radio" name="q1" disabled checked>
+                                            <span>A. 违章行为</span>
+                                        </div>
+                                        <div class="question-option correct">
+                                            <input type="radio" name="q1" disabled>
+                                            <span>B. 违法行为</span>
+                                        </div>
+                                        <div class="question-option">
+                                            <input type="radio" name="q1" disabled>
+                                            <span>C. 过失行为</span>
+                                        </div>
+                                        <div class="question-option">
+                                            <input type="radio" name="q1" disabled>
+                                            <span>D. 违规行为</span>
+                                        </div>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded-md">
+                                        <p class="text-sm"><strong>解析：</strong>驾驶机动车在道路上违反道路交通安全法的行为属于违法行为。</p>
+                                    </div>
+                                </div>
+                                
+                                <div class="border border-gray-200 rounded-lg p-4">
+                                    <div class="flex justify-between mb-3">
+                                        <span class="font-medium">安全文明</span>
+                                        <span class="text-sm text-neutral">2026-03-02</span>
+                                    </div>
+                                    <p class="mb-3">夜间驾驶机动车在照明条件良好的路段跟车行驶时，应如何使用灯光？</p>
+                                    <div class="space-y-2 mb-3">
+                                        <div class="question-option incorrect">
+                                            <input type="radio" name="q2" disabled checked>
+                                            <span>A. 使用远光灯</span>
+                                        </div>
+                                        <div class="question-option correct">
+                                            <input type="radio" name="q2" disabled>
+                                            <span>B. 使用近光灯</span>
+                                        </div>
+                                        <div class="question-option">
+                                            <input type="radio" name="q2" disabled>
+                                            <span>C. 使用危险报警闪光灯</span>
+                                        </div>
+                                        <div class="question-option">
+                                            <input type="radio" name="q2" disabled>
+                                            <span>D. 交替使用远近光灯</span>
+                                        </div>
+                                    </div>
+                                    <div class="bg-gray-50 p-3 rounded-md">
+                                        <p class="text-sm"><strong>解析：</strong>夜间在照明条件良好的路段跟车行驶时，应使用近光灯，避免影响前车驾驶员的视线。</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="flex justify-center">
+                            <div class="flex gap-2">
+                                <button class="btn btn-outline">上一页</button>
+                                <button class="btn btn-primary">1</button>
+                                <button class="btn btn-outline">2</button>
+                                <button class="btn btn-outline">3</button>
+                                <button class="btn btn-outline">下一页</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 考前冲刺 -->
+                <div id="crash-course" class="page-content hidden">
+                    <div class="card mb-6">
+                        <h3 class="text-xl font-bold mb-4">考前冲刺</h3>
+                        <p class="text-neutral mb-6">针对即将参加考试的学员，提供高强度的考前冲刺训练。</p>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                            <div class="border border-gray-200 rounded-lg p-6 hover:border-primary transition-all">
+                                <div class="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                                    <i class="fa fa-fire text-primary text-2xl"></i>
+                                </div>
+                                <h4 class="font-bold mb-2">考前3天冲刺</h4>
+                                <p class="text-neutral mb-4">重点突破高频考点，快速提分</p>
+                                <button class="btn btn-primary w-full">开始冲刺</button>
+                            </div>
+                            <div class="border border-gray-200 rounded-lg p-6 hover:border-primary transition-all">
+                                <div class="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+                                    <i class="fa fa-bolt text-primary text-2xl"></i>
+                                </div>
+                                <h4 class="font-bold mb-2">考前1天强化</h4>
+                                <p class="text-neutral mb-4">聚焦易错点，巩固记忆</p>
+                                <button class="btn btn-primary w-full">开始强化</button>
+                            </div>
+                        </div>
+                        
+                        <div class="border-t border-gray-200 pt-6">
+                            <h4 class="font-bold mb-4">高频考点</h4>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div class="border border-gray-200 rounded-lg p-4 hover:border-primary transition-all">
+                                    <h5 class="font-medium mb-2">交通标志</h5>
+                                    <p class="text-sm text-neutral mb-3">常见交通标志识别与记忆</p>
+                                    <button class="btn btn-outline w-full">开始练习</button>
+                                </div>
+                                <div class="border border-gray-200 rounded-lg p-4 hover:border-primary transition-all">
+                                    <h5 class="font-medium mb-2">安全文明</h5>
+                                    <p class="text-sm text-neutral mb-3">安全行车与文明驾驶</p>
+                                    <button class="btn btn-outline w-full">开始练习</button>
+                                </div>
+                                <div class="border border-gray-200 rounded-lg p-4 hover:border-primary transition-all">
+                                    <h5 class="font-medium mb-2">紧急情况</h5>
+                                    <p class="text-sm text-neutral mb-3">突发情况处理方法</p>
+                                    <button class="btn btn-outline w-full">开始练习</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 学习报告 -->
+                <div id="report" class="page-content hidden">
+                    <div class="card mb-6">
+                        <h3 class="text-xl font-bold mb-4">学习报告</h3>
+                        <p class="text-neutral mb-6">全面分析您的学习情况，提供详细的学习数据和改进建议。</p>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                            <div class="card">
+                                <h4 class="font-bold mb-3">学习概览</h4>
+                                <div class="space-y-3">
+                                    <div>
+                                        <div class="flex justify-between mb-1">
+                                            <span>总学习时长</span>
+                                            <span>50小时</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="flex justify-between mb-1">
+                                            <span>总做题数</span>
+                                            <span>1,250题</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="flex justify-between mb-1">
+                                            <span>正确率</span>
+                                            <span>82%</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="flex justify-between mb-1">
+                                            <span>模拟考试次数</span>
+                                            <span>8次</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="flex justify-between mb-1">
+                                            <span>平均得分</span>
+                                            <span>78分</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <h4 class="font-bold mb-3">知识掌握度</h4>
+                                <div class="space-y-3">
+                                    <div>
+                                        <div class="flex justify-between mb-1">
+                                            <span>交通法规</span>
+                                            <span>78%</span>
+                                        </div>
+                                        <div class="progress-bar">
+                                            <div class="progress-bar-fill" style="width: 78%"></div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="flex justify-between mb-1">
+                                            <span>安全文明</span>
+                                            <span>45%</span>
+                                        </div>
+                                        <div class="progress-bar">
+                                            <div class="progress-bar-fill" style="width: 45%"></div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="flex justify-between mb-1">
+                                            <span>标志标线</span>
+                                            <span>85%</span>
+                                        </div>
+                                        <div class="progress-bar">
+                                            <div class="progress-bar-fill" style="width: 85%"></div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="flex justify-between mb-1">
+                                            <span>紧急情况</span>
+                                            <span>40%</span>
+                                        </div>
+                                        <div class="progress-bar">
+                                            <div class="progress-bar-fill" style="width: 40%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <h4 class="font-bold mb-3">学习趋势</h4>
+                                <div class="h-48">
+                                    <canvas id="trendChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="border-t border-gray-200 pt-6">
+                            <h4 class="font-bold mb-4">AI学习建议</h4>
+                            <div class="bg-gray-50 p-4 rounded-lg">
+                                <p class="mb-3">基于您的学习数据，AI系统为您提供以下建议：</p>
+                                <ul class="list-disc pl-5 space-y-2">
+                                    <li>重点加强安全文明和紧急情况处理的学习</li>
+                                    <li>建议每天至少练习30分钟，保持学习连续性</li>
+                                    <li>多做模拟考试，熟悉考试节奏和题型</li>
+                                    <li>定期回顾错题，巩固薄弱知识点</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script>
+        // 设置当前日期
+        document.getElementById('current-date').textContent = new Date().toLocaleDateString('zh-CN', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+        
+        // 模式选择流程
+        document.getElementById('free-mode-btn').addEventListener('click', function() {
+            document.getElementById('smart-mode-flow').classList.add('hidden');
+            document.getElementById('free-mode-flow').classList.remove('hidden');
+        });
+        
+        document.getElementById('smart-mode-btn').addEventListener('click', function() {
+            document.getElementById('free-mode-flow').classList.add('hidden');
+            document.getElementById('smart-mode-flow').classList.remove('hidden');
+        });
+        
+        // 智能模式流程
+        document.getElementById('continue-btn').addEventListener('click', function() {
+            document.getElementById('car-type-flow').classList.remove('hidden');
+        });
+        
+        document.getElementById('new-account-btn').addEventListener('click', function() {
+            document.getElementById('new-account-flow').classList.remove('hidden');
+        });
+        
+        // 车型选择
+        document.querySelectorAll('#car-type-flow button').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const carType = this.getAttribute('data-car-type');
+                if (carType.includes('C1') || carType.includes('C2')) {
+                    document.getElementById('subject-choice-car').classList.remove('hidden');
+                    document.getElementById('subject-choice-other').classList.add('hidden');
+                } else {
+                    document.getElementById('subject-choice-other').classList.remove('hidden');
+                    document.getElementById('subject-choice-car').classList.add('hidden');
+                }
+            });
+        });
+        
+        // 科目选择
+        document.querySelectorAll('#subject-choice-car button, #subject-choice-other button').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.getElementById('exam-status-flow').classList.remove('hidden');
+            });
+        });
+        
+        // 约考状态选择
+        document.querySelectorAll('#exam-status-flow button').forEach(btn => {
+            btn.addEventListener('click', function() {
+                if (this.id === 'exam-scheduled-btn') {
+                    document.getElementById('exam-time-flow').classList.remove('hidden');
+                } else {
+                    document.getElementById('level-flow').classList.remove('hidden');
+                }
+            });
+        });
+        
+        // 考试时间选择
+        document.querySelectorAll('#exam-time-flow button').forEach(btn => {
+            btn.addEventListener('click', function() {
+                if (this.id === 'exam-soon-btn') {
+                    // 考试时间剩余1天以内，进入考前强化
+                    alert('考试时间剩余1天以内，进入考前强化模式');
+                } else {
+                    document.getElementById('level-flow').classList.remove('hidden');
+                }
+            });
+        });
+        
+        // 基础分档选择
+        document.querySelectorAll('#level-flow button').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const level = this.getAttribute('data-level');
+                const pathInfo = document.getElementById('path-info');
+                
+                // 根据基础分档显示不同的学习路径
+                switch(level) {
+                    case '<40':
+                        pathInfo.innerHTML = '<p class="font-medium">基础差学习路径：</p><p>1. 系统学习交通法规基础（100题）</p><p>2. 学习安全文明驾驶知识（100题）</p><p>3. 识别交通标志标线（50题）</p><p>4. 模拟考试练习（5次）</p>';
+                        break;
+                    case '40-49':
+                        pathInfo.innerHTML = '<p class="font-medium">基础不好学习路径：</p><p>1. 复习交通法规重点（80题）</p><p>2. 加强安全文明驾驶学习（80题）</p><p>3. 巩固标志标线识别（40题）</p><p>4. 模拟考试练习（4次）</p>';
+                        break;
+                    case '50-69':
+                        pathInfo.innerHTML = '<p class="font-medium">基础较好学习路径：</p><p>1. 针对性练习薄弱环节（60题）</p><p>2. 模拟考试训练（3次）</p><p>3. 错题回顾与巩固（40题）</p>';
+                        break;
+                    case '70-79':
+                        pathInfo.innerHTML = '<p class="font-medium">基础好学习路径：</p><p>1. 模拟考试训练（2次）</p><p>2. 错题专项练习（30题）</p><p>3. 高频考点回顾（20题）</p>';
+                        break;
+                    case '80+':
+                        pathInfo.innerHTML = '<p class="font-medium">基础非常好学习路径：</p><p>1. 模拟考试冲刺（2次）</p><p>2. 易错点回顾（20题）</p><p>3. 考前心态调整</p>';
+                        break;
+                }
+                
+                document.getElementById('learning-path-flow').classList.remove('hidden');
+            });
+        });
+        
+        // 开始学习按钮
+        document.getElementById('start-learning-btn').addEventListener('click', function() {
+            // 隐藏模式选择页面，显示主应用
+            document.getElementById('mode-selection').classList.add('hidden');
+            document.getElementById('main-app').classList.remove('hidden');
+        });
+        
+        document.getElementById('start-free-learning-btn').addEventListener('click', function() {
+            // 隐藏模式选择页面，显示主应用
+            document.getElementById('mode-selection').classList.add('hidden');
+            document.getElementById('main-app').classList.remove('hidden');
+        });
+        
+        // 导航切换
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', function() {
+                // 移除所有active类
+                document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+                // 添加active类到当前项
+                this.classList.add('active');
+                
+                // 隐藏所有页面内容
+                document.querySelectorAll('.page-content').forEach(page => page.classList.add('hidden'));
+                // 显示目标页面
+                const target = this.getAttribute('data-target');
+                document.getElementById(target).classList.remove('hidden');
+                
+                // 更新页面标题
+                const titles = {
+                    'home': '首页',
+                    'diagnosis': '智能诊断',
+                    'learning': '个性学习',
+                    'exam': '模拟考试',
+                    'wrong-questions': '错题管理',
+                    'crash-course': '考前冲刺',
+                    'report': '学习报告'
+                };
+                document.getElementById('page-title').textContent = titles[target];
+            });
+        });
+        
+        // 添加按钮点击事件
+        function addButtonInteractions() {
+            // 首页按钮
+            document.querySelectorAll('#home .btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const text = this.textContent.trim();
+                    if (text.includes('继续学习')) {
+                        // 切换到个性学习页面
+                        document.querySelector('.nav-item[data-target="learning"]').click();
+                    } else if (text.includes('预约考试')) {
+                        // 显示日期选择器
+                        document.getElementById('date-picker-modal').classList.remove('hidden');
+                    }
+                });
+            });
+            
+            // 日期选择器相关事件
+            document.getElementById('appointment-btn').addEventListener('click', function() {
+                document.getElementById('date-picker-modal').classList.remove('hidden');
+            });
+            
+            document.getElementById('cancel-date').addEventListener('click', function() {
+                document.getElementById('date-picker-modal').classList.add('hidden');
+            });
+            
+            document.getElementById('confirm-date').addEventListener('click', function() {
+                const examDate = document.getElementById('exam-date').value;
+                if (!examDate) {
+                    alert('请选择考试日期');
+                    return;
+                }
+                
+                // 计算距离考试的天数
+                const today = new Date();
+                const exam = new Date(examDate);
+                const timeDiff = exam.getTime() - today.getTime();
+                const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
+                
+                if (daysDiff < 0) {
+                    alert('选择的日期不能早于今天');
+                    return;
+                }
+                
+                // 更新页面上的考试倒计时
+                const countdownElement = document.querySelector('#home .text-primary.font-medium');
+                if (countdownElement) {
+                    countdownElement.textContent = daysDiff + '天';
+                }
+                
+                // 关闭日期选择器
+                document.getElementById('date-picker-modal').classList.add('hidden');
+                
+                // 如果距离考试还有1天以内，切换到考前冲刺页面
+                if (daysDiff <= 1) {
+                    alert('距离考试还有' + daysDiff + '天，建议进入考前冲刺模式');
+                    document.querySelector('.nav-item[data-target="crash-course"]').click();
+                }
+            });
+        }
+        
+        // 初始化图表
+        window.addEventListener('load', function() {
+            // 学习时长趋势图
+            const studyTimeCtx = document.getElementById('studyTimeChart').getContext('2d');
+            new Chart(studyTimeCtx, {
+                type: 'line',
+                data: {
+                    labels: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
+                    datasets: [{
+                        label: '学习时长（分钟）',
+                        data: [45, 60, 30, 90, 60, 120, 90],
+                        borderColor: '#1890FF',
+                        backgroundColor: 'rgba(24, 144, 255, 0.1)',
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+            
+            // 成绩变化图
+            const scoreCtx = document.getElementById('scoreChart').getContext('2d');
+            new Chart(scoreCtx, {
+                type: 'line',
+                data: {
+                    labels: ['模拟1', '模拟2', '模拟3', '模拟4', '模拟5', '模拟6', '模拟7', '模拟8'],
+                    datasets: [{
+                        label: '得分',
+                        data: [65, 68, 72, 75, 70, 78, 82, 85],
+                        borderColor: '#52C41A',
+                        backgroundColor: 'rgba(82, 196, 26, 0.1)',
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100
+                        }
+                    }
+                }
+            });
+            
+            // 学习趋势图
+            const trendCtx = document.getElementById('trendChart').getContext('2d');
+            new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: ['第1周', '第2周', '第3周', '第4周'],
+                    datasets: [{
+                        label: '正确率',
+                        data: [60, 68, 75, 82],
+                        borderColor: '#1890FF',
+                        backgroundColor: 'rgba(24, 144, 255, 0.1)',
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100
+                        }
+                    }
+                }
+            });
+            
+            // 初始化按钮交互
+            addButtonInteractions();
+        });
+    </script>
+</body>
+</html>
