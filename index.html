@@ -827,7 +827,7 @@
 
                         <div class="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                             <div class="flex flex-wrap gap-2">
-                                <button class="btn btn-primary" id="bank-start-filter"><i class="fa fa-play-circle mr-2"></i>练习当前筛选（20题）</button>
+                                <button class="btn btn-primary" id="bank-start-filter"><i class="fa fa-play-circle mr-2"></i>练习当前筛选（100题）</button>
                                 <button class="btn btn-outline" id="bank-add-fav">将筛选结果加入收藏</button>
                             </div>
                             <div class="flex items-center gap-2">
@@ -874,32 +874,24 @@
                                             <th class="text-left py-3 px-4">操作</th>
                                         </tr>
                                     </thead>
-                                    <tbody>
+                                    <tbody id="exam-history-body">
                                         <tr class="border-b border-gray-200">
-                                            <td class="py-3 px-4">2026-03-03 14:30</td>
-                                            <td class="py-3 px-4">标准考试</td>
-                                            <td class="py-3 px-4">85分</td>
-                                            <td class="py-3 px-4"><span class="badge badge-success">通过</span></td>
-                                            <td class="py-3 px-4"><button class="text-primary hover:underline" data-exam-detail="2026-03-03 14:30">查看详情</button></td>
-                                        </tr>
-                                        <tr class="border-b border-gray-200">
-                                            <td class="py-3 px-4">2026-03-02 10:15</td>
-                                            <td class="py-3 px-4">快速测试</td>
-                                            <td class="py-3 px-4">72分</td>
-                                            <td class="py-3 px-4"><span class="badge badge-success">通过</span></td>
-                                            <td class="py-3 px-4"><button class="text-primary hover:underline" data-exam-detail="2026-03-02 10:15">查看详情</button></td>
-                                        </tr>
-                                        <tr class="border-b border-gray-200">
-                                            <td class="py-3 px-4">2026-03-01 16:45</td>
-                                            <td class="py-3 px-4">标准考试</td>
-                                            <td class="py-3 px-4">65分</td>
-                                            <td class="py-3 px-4"><span class="badge badge-error">未通过</span></td>
-                                            <td class="py-3 px-4"><button class="text-primary hover:underline" data-exam-detail="2026-03-01 16:45">查看详情</button></td>
+                                            <td class="py-4 px-4 text-neutral" colspan="5">暂无考试记录。先完成一次标准考试或快速测试。</td>
                                         </tr>
                                     </tbody>
                                 </table>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <div id="exam-detail-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+                    <div class="bg-white rounded-xl max-w-4xl w-full mx-4 p-6 max-h-[85vh] overflow-y-auto">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-bold">考试详情</h3>
+                            <button id="exam-detail-close" class="btn btn-secondary">关闭</button>
+                        </div>
+                        <div id="exam-detail-content"></div>
                     </div>
                 </div>
                 
@@ -1173,11 +1165,14 @@
                     <div class="card mb-6" data-help-section="7" id="help-s7">
                         <h4 class="text-lg font-bold mb-3">7. 今日计划与题库页</h4>
                         <div class="space-y-3 text-neutral">
-                            <p><strong>今日计划：</strong>根据考试日期与剩余题量计算今日目标，并统计今日完成/正确率。</p>
-                            <p><strong>题库（已优化）：</strong>支持搜索（题干/ID）、按状态/题型/知识点/收藏筛选、分页浏览，并支持“练习当前筛选（20题）”和“将筛选结果加入收藏”。</p>
+                            <p><strong>今日计划：</strong>根据考试日期、剩余题量、近3天正确率、到期复习量动态计算今日目标，并按倒计时分阶段（基础/平衡/冲刺/临考）。</p>
+                            <p><strong>设置面板（已可用）：</strong>点击顶部齿轮可调整“智能锁定题数、每日新题/复习/总题上限、阶段阈值”。保存后会立即更新首页“今日目标”和「今日计划」页。</p>
+                            <p><strong>默认参数：</strong>新题上限160、复习上限120、总题上限200；阶段阈值为基础&gt;14天、平衡7-14天、冲刺4-7天、临考≤3天。</p>
+                            <p><strong>调参建议：</strong>时间少可先降“新题上限”并提高复习占比；基础薄弱可提高“基础期阈值”；若出现“无法按时完成”风险提示，可延后考试日期或提高每日练题时长。</p>
+                            <p><strong>题库（已优化）：</strong>支持搜索（题干/ID）、按状态/题型/知识点/收藏筛选、分页浏览，并支持“练习当前筛选（100题）”和“将筛选结果加入收藏”。</p>
                             <p><strong>题库视图切换（新）：</strong>支持“列表”与“按知识点”两种视图。切换后会自动回到题库区域顶部，避免你滚动在页面下方导致“看起来像没变化”。在“按知识点”视图里可查看每个知识点的掌握度、题量、未掌握数，并一键进入该知识点专项20题。</p>
                             <p><strong>学习模式选择（已接入可点击）：</strong>在「个性学习」页，顺序学习/随机练习会直接进入练题页；错题练习会进入错题队列；专项练习按钮会进入对应知识点专项20题。</p>
-                            <p><strong>顶部栏按钮（已接入可点击）：</strong>问号会跳转到使用说明；铃铛/设置目前为原型占位提示（后续可接提醒与设置面板）。</p>
+                            <p><strong>顶部栏按钮（已接入可点击）：</strong>问号会跳转到使用说明；铃铛目前为占位提示；设置已接入可配置面板。</p>
                         </div>
                     </div>
 
@@ -1306,6 +1301,70 @@
                 </div>
             </div>
         </main>
+    </div>
+
+    <div id="settings-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg p-6 w-full max-w-2xl">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold">学习设置</h3>
+                <button id="settings-cancel" class="btn btn-secondary">关闭</button>
+            </div>
+            <div class="space-y-5">
+                <div>
+                    <h4 class="font-bold mb-2">智能练题</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <label class="text-sm text-neutral">
+                            智能锁定题数
+                            <select id="settings-smart-lock-n" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2">
+                                <option value="3">3题</option>
+                                <option value="5">5题</option>
+                                <option value="8">8题</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="font-bold mb-2">每日目标上限</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <label class="text-sm text-neutral">
+                            新题上限
+                            <input id="settings-max-new" type="number" min="20" max="400" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2" />
+                        </label>
+                        <label class="text-sm text-neutral">
+                            复习上限
+                            <input id="settings-max-review" type="number" min="0" max="300" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2" />
+                        </label>
+                        <label class="text-sm text-neutral">
+                            总题上限
+                            <input id="settings-max-total" type="number" min="20" max="500" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2" />
+                        </label>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="font-bold mb-2">倒计时阶段阈值（天）</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <label class="text-sm text-neutral">
+                            基础期阈值（>X）
+                            <input id="settings-foundation-days" type="number" min="8" max="120" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2" />
+                        </label>
+                        <label class="text-sm text-neutral">
+                            平衡期阈值（>X）
+                            <input id="settings-balanced-days" type="number" min="3" max="90" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2" />
+                        </label>
+                        <label class="text-sm text-neutral">
+                            冲刺期阈值（>X）
+                            <input id="settings-sprint-days" type="number" min="0" max="30" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2" />
+                        </label>
+                    </div>
+                    <p class="text-xs text-neutral mt-2">规则要求：基础阈值 > 平衡阈值 > 冲刺阈值。</p>
+                </div>
+                <p id="settings-error" class="text-sm text-error"></p>
+            </div>
+            <div class="flex justify-end gap-2 mt-6">
+                <button id="settings-reset" class="btn btn-outline">恢复默认</button>
+                <button id="settings-save" class="btn btn-primary">保存设置</button>
+            </div>
+        </div>
     </div>
     
     <script>

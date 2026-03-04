@@ -13,7 +13,21 @@ export const LS_KEYS = {
   DIAGNOSIS: 'qa.diagnosis', // { status, queue, cursor, answers, startedAt, finishedAt }
   SETTINGS: 'qa.settings', // { diagnosisShowAnalysis:boolean, smartLockN:number }
   WRONG_REASON: 'qa.wrongReason', // { [questionId]: 'memory'|'understand'|'careless'|'trap' }
-  REVIEW: 'qa.review' // { [questionId]: nextTs:number, intervalDays:number }
+  REVIEW: 'qa.review', // { [questionId]: nextTs:number, intervalDays:number }
+  EXAM_HISTORY: 'qa.examHistory' // [{ id, startedAt, finishedAt, durationSec, examType, total, correct, score, wrongIds, byKnowledge, wrongReasonStat, queue, answers }]
+};
+
+const SETTINGS_DEFAULT = {
+  diagnosisShowAnalysis: true,
+  smartLockN: 5,
+  plan: {
+    maxNewPerDay: 160,
+    maxReviewPerDay: 120,
+    maxTotalPerDay: 200,
+    foundationDays: 14,
+    balancedDays: 7,
+    sprintDays: 3
+  }
 };
 
 function safeJsonParse(raw, fallback) {
@@ -220,7 +234,10 @@ export function getDiagnosis() {
     answers: {},
     startedAt: 0,
     finishedAt: 0,
-    durationSec: 2700
+    durationSec: 2700,
+    total: 100,
+    examType: 'standard',
+    savedExamId: ''
   });
 }
 
@@ -229,10 +246,19 @@ export function setDiagnosis(d) {
 }
 
 export function getSettings() {
-  return safeJsonParse(localStorage.getItem(LS_KEYS.SETTINGS), {
-    diagnosisShowAnalysis: true,
-    smartLockN: 5
-  });
+  const parsed = safeJsonParse(localStorage.getItem(LS_KEYS.SETTINGS), {});
+  const obj = parsed && typeof parsed === 'object' ? parsed : {};
+  const plan = obj.plan && typeof obj.plan === 'object' ? obj.plan : {};
+  return {
+    ...SETTINGS_DEFAULT,
+    ...obj,
+    diagnosisShowAnalysis: obj.diagnosisShowAnalysis !== false,
+    smartLockN: Number(obj.smartLockN || SETTINGS_DEFAULT.smartLockN),
+    plan: {
+      ...SETTINGS_DEFAULT.plan,
+      ...plan
+    }
+  };
 }
 
 export function setSettings(s) {
@@ -286,6 +312,24 @@ export function scheduleReview(questionId, correct) {
 
 export function clearDiagnosis() {
   localStorage.removeItem(LS_KEYS.DIAGNOSIS);
+}
+
+export function getExamHistory() {
+  return safeJsonParse(localStorage.getItem(LS_KEYS.EXAM_HISTORY), []);
+}
+
+export function setExamHistory(list) {
+  localStorage.setItem(LS_KEYS.EXAM_HISTORY, JSON.stringify(Array.isArray(list) ? list : []));
+}
+
+export function saveExamResult(record) {
+  if (!record || !record.id) return getExamHistory();
+  const list = getExamHistory();
+  const idx = list.findIndex(x => x.id === record.id);
+  if (idx >= 0) list[idx] = record;
+  else list.unshift(record);
+  setExamHistory(list.slice(0, 50));
+  return list;
 }
 
 export function clearAllData() {

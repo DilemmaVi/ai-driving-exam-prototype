@@ -4,6 +4,7 @@ import {
   setExamDate,
   getProgress,
   upsertAnswer,
+  addWrong,
   isFavorite,
   toggleFavorite,
   getNote,
@@ -21,15 +22,112 @@ import {
   setWrongReasonForQuestion,
   getWrongReason,
   scheduleReview,
-  getReview
+  getReview,
+  getExamHistory,
+  saveExamResult
 } from './storage.js';
 
 let QUESTIONS = [];
 let currentIndex = 0;
 
+function cleanMarkedText(s) {
+  return String(s || '').replace(/[【】]/g, '').replace(/[｛｝]/g, '').trim();
+}
+
+const KNOWLEDGE_RULES = [
+  { kid: 'law.signals', kws: ['信号灯', '红灯', '绿灯', '黄灯', '让行', '优先通行', '会车'] },
+  { kid: 'law.lanes', kws: ['车道', '变道', '超车', '并线', '导向车道', '掉头', '转弯'] },
+  { kid: 'law.parking', kws: ['停车', '临停', '禁停', '泊车', '驻车'] },
+  { kid: 'safe.bad_weather', kws: ['雨天', '雾天', '冰雪', '泥泞', '湿滑', '夜间', '能见度'] },
+  { kid: 'safe.emergency', kws: ['爆胎', '失火', '故障', '紧急', '事故', '侧滑', '制动失效'] },
+  { kid: 'safe.fatigue_drink', kws: ['疲劳', '酒后', '饮酒', '醉酒', '药物', '分心', '手机'] },
+  { kid: 'lights', kws: ['远光灯', '近光灯', '灯光', '示廓灯', '雾灯', '双闪'] },
+  { kid: 'highway', kws: ['高速公路', '收费站', '匝道', '应急车道'] },
+  { kid: 'signs_markings', kws: ['标志', '标线', '导流线', '禁止标志', '指示标志'] },
+  { kid: 'police_command', kws: ['交警', '手势', '警察指挥'] },
+  { kid: 'safe.civilized', kws: ['安全带', '礼让', '文明', '人行横道', '校车'] }
+];
+
+function inferKnowledgeIdFromText(text) {
+  const t = String(text || '');
+  for (const rule of KNOWLEDGE_RULES) {
+    if (rule.kws.some(k => t.includes(k))) return rule.kid;
+  }
+  return 'law.basic';
+}
+
+function normalizeAnswer(type, rawAnswer) {
+  if (type === 'multi') {
+    const arr = Array.isArray(rawAnswer) ? rawAnswer : [rawAnswer];
+    const nums = arr
+      .map(x => Number(x))
+      .filter(x => Number.isFinite(x) && x >= 0);
+    return Array.from(new Set(nums)).sort((a, b) => a - b);
+  }
+  const n = Number(rawAnswer);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function getAnswerIndexes(answer) {
+  if (Array.isArray(answer)) return answer.slice().map(Number).filter(Number.isFinite);
+  const n = Number(answer);
+  return Number.isFinite(n) ? [n] : [];
+}
+
+function isSameAnswerSet(a, b) {
+  const aa = Array.from(new Set(getAnswerIndexes(a))).sort((x, y) => x - y);
+  const bb = Array.from(new Set(getAnswerIndexes(b))).sort((x, y) => x - y);
+  if (aa.length !== bb.length) return false;
+  return aa.every((v, i) => v === bb[i]);
+}
+
+function normalizeQuestion(raw) {
+  const q = raw || {};
+  const typeRaw = String(q.type || '').toLowerCase();
+  const answerRaw = q.answer;
+  const inferredTypeByAnswer = Array.isArray(answerRaw) && answerRaw.length > 1 ? 'multi' : '';
+  const type = (typeRaw === 'tf' || typeRaw === 'single' || typeRaw === 'multi')
+    ? typeRaw
+    : (inferredTypeByAnswer || (Array.isArray(q.options) && q.options.length === 2 ? 'tf' : 'single'));
+  const opts = Array.isArray(q.options) ? q.options.map(cleanMarkedText) : [];
+  const answer = normalizeAnswer(type, answerRaw);
+  const stem = cleanMarkedText(q.stem || '');
+  const analysis = cleanMarkedText(q.analysis || '暂无解析');
+  const optionText = opts.join(' ');
+  // 性能优先：知识点归类只用题干+选项，不扫长解析文本
+  const inferredKid = inferKnowledgeIdFromText(`${stem} ${optionText}`);
+  const inputKid = q.knowledgeId || 'law.basic';
+  const knowledgeId = inputKid === 'law.basic' ? inferredKid : inputKid;
+  return {
+    id: String(q.id || ''),
+    type,
+    knowledgeId,
+    frequency: Number(q.frequency || 3),
+    difficulty: Number(q.difficulty || 3),
+    stem,
+    options: opts,
+    answer,
+    analysis,
+    tags: Array.isArray(q.tags) ? q.tags.map(cleanMarkedText).filter(Boolean) : ['驾驶证', '科目一']
+  };
+}
+
 async function loadQuestions() {
-  const res = await fetch('./data/questions.json', { cache: 'no-store' });
-  QUESTIONS = await res.json();
+  try {
+    const res = await fetch('./data/questions.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    QUESTIONS = Array.isArray(data)
+      ? data.map(normalizeQuestion).filter(q => q.id && q.stem && Array.isArray(q.options) && q.options.length > 1)
+      : [];
+    if (!QUESTIONS.length) throw new Error('题库为空');
+    window.__questionsLoadError = '';
+  } catch (err) {
+    QUESTIONS = [];
+    const msg = String(err?.message || err || 'unknown');
+    window.__questionsLoadError = msg;
+    console.error('[questions] load failed:', msg);
+  }
 }
 
 function qs(sel) {
@@ -37,6 +135,25 @@ function qs(sel) {
 }
 function qsa(sel) {
   return Array.from(document.querySelectorAll(sel));
+}
+
+function showQuestionLoadHint() {
+  const err = window.__questionsLoadError || '';
+  const proto = window.location?.protocol || '';
+  const ext = proto === 'file:'
+    ? '当前是 file:// 打开，浏览器会拦截 fetch。请用 `python3 -m http.server 5173` 后访问 http://127.0.0.1:5173/'
+    : '';
+  const text = `题库未加载成功${err ? `：${err}` : ''}${ext ? `。${ext}` : ''}`;
+  const stem = qs('#q-stem');
+  if (stem) stem.textContent = text;
+  const diag = qs('#diagnosis-box');
+  if (diag) diag.innerHTML = `<div class=\"card\"><p class=\"text-error\">${text}</p></div>`;
+}
+
+function questionTypeText(type, long = false) {
+  if (type === 'tf') return long ? '判断题' : '判断';
+  if (type === 'multi') return long ? '多选题' : '多选';
+  return long ? '单选题' : '单选';
 }
 
 function showPage(pageId, title) {
@@ -50,25 +167,162 @@ function showPage(pageId, title) {
   if (pageId === 'diagnosis') {
     renderDiagnosisHome();
   }
+  if (pageId === 'exam') {
+    renderExamPage();
+  }
 }
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function calcDailyTarget(total, done, examDate) {
-  let dailyTarget = 50;
-  if (examDate) {
-    const today = new Date();
-    const exam = new Date(examDate);
-    const diff = Math.ceil((exam.getTime() - today.getTime()) / (1000 * 3600 * 24));
-    const remain = Math.max(total - done, 0);
-    if (diff > 0) {
-      dailyTarget = Math.ceil(remain / diff);
-      dailyTarget = Math.max(20, Math.min(100, dailyTarget));
-    }
+function addDays(dateStr, delta) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function getPlanConfig() {
+  const s = getSettings();
+  const p = s.plan || {};
+  const toInt = (v, fallback) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.round(n) : fallback;
+  };
+
+  const maxNewPerDay = clamp(toInt(p.maxNewPerDay, 160), 20, 400);
+  const maxReviewPerDay = clamp(toInt(p.maxReviewPerDay, 120), 0, 300);
+  const maxTotalBase = toInt(p.maxTotalPerDay, 200);
+  const maxTotalPerDay = clamp(Math.max(maxTotalBase, maxNewPerDay, 20), 20, 500);
+
+  const foundationDaysRaw = clamp(toInt(p.foundationDays, 14), 8, 120);
+  const balancedDaysRaw = clamp(toInt(p.balancedDays, 7), 3, 90);
+  const sprintDaysRaw = clamp(toInt(p.sprintDays, 3), 0, 30);
+
+  const foundationDays = Math.max(foundationDaysRaw, balancedDaysRaw + 1);
+  const balancedDays = Math.min(balancedDaysRaw, foundationDays - 1);
+  const sprintDays = Math.min(sprintDaysRaw, balancedDays - 1);
+
+  return {
+    maxNewPerDay,
+    maxReviewPerDay,
+    maxTotalPerDay,
+    foundationDays,
+    balancedDays,
+    sprintDays
+  };
+}
+
+function getDueReviewCount() {
+  const review = getReview();
+  const now = Date.now();
+  return Object.keys(review || {}).filter(id => Number(review[id]?.nextTs || 0) <= now).length;
+}
+
+function getRecentAccuracy(lastDays = 3) {
+  const daily = getDaily();
+  const byDate = daily.byDate || {};
+  let done = 0;
+  let correct = 0;
+  const t = todayStr();
+  for (let i = 0; i < lastDays; i += 1) {
+    const key = addDays(t, -i);
+    const rec = byDate[key] || { done: 0, correct: 0 };
+    done += Number(rec.done || 0);
+    correct += Number(rec.correct || 0);
   }
-  return dailyTarget;
+  const acc = done ? Math.round((correct / done) * 100) : 75;
+  return { done, correct, acc };
+}
+
+function getDaysLeft(examDate) {
+  if (!examDate) return 0;
+  const today = new Date(todayStr() + 'T00:00:00');
+  const exam = new Date(examDate + 'T00:00:00');
+  return Math.max(0, Math.ceil((exam.getTime() - today.getTime()) / (1000 * 3600 * 24)));
+}
+
+function getDynamicDailyPlan(total, done, examDate) {
+  const remain = Math.max(total - done, 0);
+  const daysLeft = getDaysLeft(examDate);
+  const dueReview = getDueReviewCount();
+  const recent = getRecentAccuracy(3);
+  const cfg = getPlanConfig();
+  const maxNewPerDay = cfg.maxNewPerDay;
+  const maxReviewPerDay = cfg.maxReviewPerDay;
+  const maxTotalPerDay = cfg.maxTotalPerDay;
+  const hasExamDate = Boolean(examDate);
+
+  const stage = (() => {
+    if (!hasExamDate) return { key: 'steady', label: '常规稳态', newRatio: 0.65, reviewRatio: 0.35, newMult: 1.0 };
+    if (daysLeft > cfg.foundationDays) return { key: 'foundation', label: `基础夯实期（>${cfg.foundationDays}天）`, newRatio: 0.75, reviewRatio: 0.25, newMult: 1.05 };
+    if (daysLeft > cfg.balancedDays) return { key: 'balanced', label: `平衡提升期（${cfg.balancedDays + 1}-${cfg.foundationDays}天）`, newRatio: 0.6, reviewRatio: 0.4, newMult: 1.0 };
+    if (daysLeft > cfg.sprintDays) return { key: 'sprint', label: `考前冲刺期（${cfg.sprintDays + 1}-${cfg.balancedDays}天）`, newRatio: 0.45, reviewRatio: 0.55, newMult: 0.92 };
+    return { key: 'final', label: `临考稳分期（<=${cfg.sprintDays}天）`, newRatio: 0.25, reviewRatio: 0.75, newMult: 0.78 };
+  })();
+
+  const requiredPerDay = hasExamDate && remain > 0
+    ? Math.ceil(remain / Math.max(daysLeft, 1))
+    : 0;
+  const impossible = hasExamDate && remain > 0 && requiredPerDay > maxNewPerDay;
+
+  let baseNew = 0;
+  if (hasExamDate) {
+    baseNew = requiredPerDay;
+  } else {
+    // 未设置考试日期：给一个稳妥默认目标
+    baseNew = remain ? Math.ceil(Math.min(remain, 60)) : 20;
+  }
+
+  let factor = 1.0;
+  if (recent.acc < 70) factor = 0.85;
+  else if (recent.acc > 85) factor = 1.15;
+
+  let newTarget = Math.ceil(baseNew * factor * stage.newMult);
+  if (hasExamDate && remain > 0 && !impossible) {
+    // 可达成时，确保新题节奏不低于按时完成所需速度
+    newTarget = Math.max(newTarget, requiredPerDay);
+  }
+  newTarget = clamp(newTarget, stage.key === 'final' ? 6 : 10, maxNewPerDay);
+
+  let reviewTarget = dueReview;
+  if (hasExamDate) {
+    const desiredTotal = stage.newRatio > 0 ? Math.ceil(newTarget / stage.newRatio) : newTarget + dueReview;
+    const desiredReview = Math.max(0, Math.ceil(desiredTotal * stage.reviewRatio));
+    reviewTarget = Math.max(dueReview, desiredReview);
+  }
+  reviewTarget = clamp(reviewTarget, 0, maxReviewPerDay);
+  let totalTarget = clamp(newTarget + reviewTarget, 20, maxTotalPerDay);
+
+  // 若总目标触顶，优先保留复习任务，压缩新题
+  if (newTarget + reviewTarget > totalTarget) {
+    newTarget = Math.max(0, totalTarget - reviewTarget);
+  }
+
+  return {
+    totalTarget,
+    newTarget,
+    reviewTarget,
+    dueReview,
+    remain,
+    daysLeft,
+    recentAcc: recent.acc,
+    stageKey: stage.key,
+    stageLabel: stage.label,
+    newRatio: stage.newRatio,
+    reviewRatio: stage.reviewRatio,
+    risk: impossible,
+    requiredPerDay,
+    maxNewPerDay
+  };
+}
+
+function calcDailyTarget(total, done, examDate) {
+  return getDynamicDailyPlan(total, done, examDate).totalTarget;
 }
 
 function getGlobalCTAState() {
@@ -129,13 +383,115 @@ function bindGlobalCTA() {
   });
 }
 
+function openSettingsModal() {
+  const modal = qs('#settings-modal');
+  if (!modal) return;
+  const settings = getSettings();
+  const cfg = getPlanConfig();
+
+  const smart = qs('#settings-smart-lock-n');
+  if (smart) smart.value = String(settings.smartLockN || 5);
+  const maxNew = qs('#settings-max-new');
+  if (maxNew) maxNew.value = String(cfg.maxNewPerDay);
+  const maxReview = qs('#settings-max-review');
+  if (maxReview) maxReview.value = String(cfg.maxReviewPerDay);
+  const maxTotal = qs('#settings-max-total');
+  if (maxTotal) maxTotal.value = String(cfg.maxTotalPerDay);
+  const foundation = qs('#settings-foundation-days');
+  if (foundation) foundation.value = String(cfg.foundationDays);
+  const balanced = qs('#settings-balanced-days');
+  if (balanced) balanced.value = String(cfg.balancedDays);
+  const sprint = qs('#settings-sprint-days');
+  if (sprint) sprint.value = String(cfg.sprintDays);
+  const err = qs('#settings-error');
+  if (err) err.textContent = '';
+
+  modal.classList.remove('hidden');
+}
+
+function closeSettingsModal() {
+  qs('#settings-modal')?.classList.add('hidden');
+}
+
+function bindSettingsModal() {
+  const modal = qs('#settings-modal');
+  if (!modal || modal.dataset.bound) return;
+  modal.dataset.bound = '1';
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeSettingsModal();
+  });
+  qs('#settings-cancel')?.addEventListener('click', closeSettingsModal);
+  qs('#settings-reset')?.addEventListener('click', () => {
+    const s = getSettings();
+    s.smartLockN = 5;
+    s.plan = {
+      maxNewPerDay: 160,
+      maxReviewPerDay: 120,
+      maxTotalPerDay: 200,
+      foundationDays: 14,
+      balancedDays: 7,
+      sprintDays: 3
+    };
+    setSettings(s);
+    openSettingsModal();
+    renderPlanSummary();
+    if (!qs('#plan')?.classList.contains('hidden')) renderPlanPage();
+  });
+
+  qs('#settings-save')?.addEventListener('click', () => {
+    const err = qs('#settings-error');
+    const smartLockN = Number(qs('#settings-smart-lock-n')?.value || 5);
+    const maxNewPerDay = Number(qs('#settings-max-new')?.value || 160);
+    const maxReviewPerDay = Number(qs('#settings-max-review')?.value || 120);
+    const maxTotalPerDay = Number(qs('#settings-max-total')?.value || 200);
+    const foundationDays = Number(qs('#settings-foundation-days')?.value || 14);
+    const balancedDays = Number(qs('#settings-balanced-days')?.value || 7);
+    const sprintDays = Number(qs('#settings-sprint-days')?.value || 3);
+
+    const validNum = [maxNewPerDay, maxReviewPerDay, maxTotalPerDay, foundationDays, balancedDays, sprintDays]
+      .every(n => Number.isFinite(n) && n >= 0);
+    if (!validNum) {
+      if (err) err.textContent = '请填写有效数字。';
+      return;
+    }
+    if (!(foundationDays > balancedDays && balancedDays > sprintDays)) {
+      if (err) err.textContent = '阶段阈值需满足：基础天数 > 平衡天数 > 冲刺天数。';
+      return;
+    }
+    if (maxTotalPerDay < maxNewPerDay) {
+      if (err) err.textContent = '每日总题上限不能小于每日新题上限。';
+      return;
+    }
+
+    const s = getSettings();
+    s.smartLockN = clamp(Math.round(smartLockN), 3, 8);
+    s.plan = {
+      maxNewPerDay: clamp(Math.round(maxNewPerDay), 20, 400),
+      maxReviewPerDay: clamp(Math.round(maxReviewPerDay), 0, 300),
+      maxTotalPerDay: clamp(Math.round(maxTotalPerDay), 20, 500),
+      foundationDays: clamp(Math.round(foundationDays), 8, 120),
+      balancedDays: clamp(Math.round(balancedDays), 3, 90),
+      sprintDays: clamp(Math.round(sprintDays), 0, 30)
+    };
+    setSettings(s);
+
+    const smartSel = qs('#smart-lock-n');
+    if (smartSel) smartSel.value = String(s.smartLockN || 5);
+
+    renderPlanSummary();
+    if (!qs('#plan')?.classList.contains('hidden')) renderPlanPage();
+    closeSettingsModal();
+  });
+}
+
 function renderPlanSummary() {
   const examDate = getExamDate();
   const progress = getProgress();
   const total = QUESTIONS.length || 0;
   const done = progress.doneCount || 0;
 
-  const dailyTarget = calcDailyTarget(total, done, examDate);
+  const plan = getDynamicDailyPlan(total, done, examDate);
   const daily = getDaily();
   const today = todayStr();
   const todayRec = daily.byDate?.[today] || { done: 0, correct: 0 };
@@ -145,14 +501,24 @@ function renderPlanSummary() {
   const planEl = qs('#plan-summary');
   if (!planEl) return;
 
-  const pct = Math.min(100, Math.round((todayDone / dailyTarget) * 100));
+  const pct = plan.totalTarget ? Math.min(100, Math.round((todayDone / plan.totalTarget) * 100)) : 0;
+  const basis = examDate
+    ? `${plan.stageLabel} · 剩余 ${plan.remain} 题 / ${Math.max(plan.daysLeft, 1)} 天 · 近3天正确率 ${plan.recentAcc}%`
+    : `未设置考试日期 · 近3天正确率 ${plan.recentAcc}%`;
+  const riskLine = plan.risk
+    ? `<p class="text-sm text-error mt-2">按当前剩余量可能无法按时完成，至少需 ${plan.requiredPerDay} 新题/天（当前上限 ${plan.maxNewPerDay}）。</p>`
+    : '';
+  const ratioLine = `分配建议：新题 ${Math.round(plan.newRatio * 100)}% / 复习 ${Math.round(plan.reviewRatio * 100)}%`;
 
   planEl.innerHTML = `
     <div class="flex items-center justify-between">
       <div>
         <p class="text-neutral">今日目标</p>
-        <p class="text-2xl font-bold mt-1">${todayDone}/${dailyTarget} 题</p>
+        <p class="text-2xl font-bold mt-1">${todayDone}/${plan.totalTarget} 题</p>
+        <p class="text-sm text-neutral mt-1">建议构成：新题 ${plan.newTarget} + 复习 ${plan.reviewTarget}（到期 ${plan.dueReview}）</p>
+        <p class="text-sm text-neutral mt-1">${ratioLine}</p>
         <p class="text-sm text-neutral mt-1">今日正确率：${todayAcc}% · 总进度：${done}/${total}</p>
+        ${riskLine}
       </div>
       <div class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
         <i class="fa fa-bullseye text-primary text-2xl"></i>
@@ -162,7 +528,7 @@ function renderPlanSummary() {
       <div class="progress-bar">
         <div class="progress-bar-fill" style="width: ${pct}%"></div>
       </div>
-      <p class="text-sm text-neutral mt-2">建议：优先完成今日目标，并复盘解析与笔记。</p>
+      <p class="text-sm text-neutral mt-2">依据：${basis}</p>
     </div>
   `;
 }
@@ -187,6 +553,8 @@ let wrongQueue = [];
 let knowledgeQueue = [];
 let knowledgeTitle = '';
 let reviewQueue = [];
+const practiceDraftAnswers = {};
+const diagnosisDraftAnswers = {};
 
 function getCurrentQuestion() {
   if (practiceMode === 'wrong') return wrongQueue[currentIndex];
@@ -261,11 +629,19 @@ function pickSmartIndex(preferKnowledgeId = '') {
 }
 
 function renderQuestion() {
+  if (!QUESTIONS.length) {
+    showQuestionLoadHint();
+    return;
+  }
   const q = getCurrentQuestion();
   if (!q) return;
 
   const progress = getProgress();
   const answered = progress.answered?.[q.id];
+  const kName = KNOWLEDGE_DICT[q.knowledgeId] || q.knowledgeName || '未标注知识点';
+  const isMulti = q.type === 'multi';
+  const answerIndexes = getAnswerIndexes(q.answer);
+  const correctSet = new Set(answerIndexes);
 
   qs('#q-index').textContent = String(currentIndex + 1);
   qs('#q-total').textContent = String(getCurrentTotal());
@@ -300,8 +676,7 @@ function renderQuestion() {
   const optWrap = qs('#q-options');
   optWrap.innerHTML = '';
 
-  const typeLabel = q.type === 'tf' ? '判断题' : '单选题';
-  const kName = KNOWLEDGE_DICT[q.knowledgeId] || q.knowledgeName || '未标注知识点';
+  const typeLabel = questionTypeText(q.type, true);
   const km = getKnowledgeMastery();
   const mastery = km[q.knowledgeId]?.mastery;
   const masteryText = (typeof mastery === 'number') ? ` · 知识点：${kName}（掌握度 ${(mastery * 100).toFixed(0)}%）` : ` · 知识点：${kName}`;
@@ -326,7 +701,51 @@ function renderQuestion() {
   }
 
   const selected = answered?.selected;
-  const locked = typeof selected === 'number';
+  const locked = (typeof selected === 'number') || Array.isArray(selected);
+  let draft = isMulti ? (practiceDraftAnswers[q.id] || []) : [];
+  if (isMulti && !Array.isArray(practiceDraftAnswers[q.id])) {
+    practiceDraftAnswers[q.id] = [];
+    draft = practiceDraftAnswers[q.id];
+  }
+  const selectedIndexes = locked ? getAnswerIndexes(selected) : (isMulti ? getAnswerIndexes(draft) : getAnswerIndexes(selected));
+  const selectedSet = new Set(selectedIndexes);
+
+  function applyAnswer(selectedPayload, correct) {
+    upsertAnswer(q.id, selectedPayload, correct, { wrongClearThreshold: 2 });
+    updateKnowledgeMastery(q.knowledgeId, correct, { frequency: q.frequency, difficulty: q.difficulty });
+    scheduleReview(q.id, correct);
+    delete practiceDraftAnswers[q.id];
+
+    if (practiceMode === 'knowledge' && !correct) {
+      const insertPos = Math.min(knowledgeQueue.length, currentIndex + 2);
+      knowledgeQueue.splice(insertPos, 0, q);
+    }
+
+    if (practiceMode === 'smart') {
+      smartLock.groupTotal += 1;
+      if (correct) smartLock.groupCorrect += 1;
+      else smartLock.groupWrong += 1;
+      if (smartLock.remain > 0) smartLock.remain -= 1;
+      if (smartLock.remain <= 0) {
+        openSmartSummary();
+        renderStats();
+        renderPlanSummary();
+        return;
+      }
+      currentIndex = pickSmartIndex();
+    }
+
+    renderQuestion();
+    renderStats();
+    renderPlanSummary();
+
+    if (practiceMode === 'wrong') {
+      const ids = getWrongList();
+      const map = new Map(QUESTIONS.map(q => [q.id, q]));
+      wrongQueue = ids.map(id => map.get(id)).filter(Boolean);
+      if (currentIndex >= wrongQueue.length) currentIndex = Math.max(0, wrongQueue.length - 1);
+    }
+  }
 
   q.options.forEach((text, idx) => {
     const item = document.createElement('div');
@@ -334,68 +753,48 @@ function renderQuestion() {
 
     // 状态样式
     if (locked) {
-      if (idx === q.answer) item.classList.add('correct');
-      if (idx === selected && idx !== q.answer) item.classList.add('incorrect');
-    } else if (idx === selected) {
+      if (correctSet.has(idx)) item.classList.add('correct');
+      if (selectedSet.has(idx) && !correctSet.has(idx)) item.classList.add('incorrect');
+    } else if (selectedSet.has(idx)) {
       item.classList.add('selected');
     }
 
     item.innerHTML = `
-      <input type="radio" name="qopt" ${locked ? 'disabled' : ''} ${selected === idx ? 'checked' : ''} />
+      <input type="${isMulti ? 'checkbox' : 'radio'}" name="qopt" ${locked ? 'disabled' : ''} ${selectedSet.has(idx) ? 'checked' : ''} />
       <span>${q.type === 'tf' ? '' : String.fromCharCode(65 + idx) + '. '}${text}</span>
     `;
 
     item.addEventListener('click', () => {
       if (locked) return;
-      const correct = idx === q.answer;
-
-      // 记录做题
-      upsertAnswer(q.id, idx, correct, { wrongClearThreshold: 2 });
-      // 更新知识点掌握度
-      updateKnowledgeMastery(q.knowledgeId, correct, { frequency: q.frequency, difficulty: q.difficulty });
-      // 安排复习（遗忘曲线）
-      scheduleReview(q.id, correct);
-
-      // 专项模式：错题插队（1-2题后再出现一次）
-      if (practiceMode === 'knowledge' && !correct) {
-        const insertPos = Math.min(knowledgeQueue.length, currentIndex + 2);
-        knowledgeQueue.splice(insertPos, 0, q);
+      if (isMulti) {
+        const cur = new Set(getAnswerIndexes(practiceDraftAnswers[q.id] || []));
+        if (cur.has(idx)) cur.delete(idx);
+        else cur.add(idx);
+        practiceDraftAnswers[q.id] = Array.from(cur).sort((a, b) => a - b);
+        renderQuestion();
+        return;
       }
-
-      // 智能模式：组统计 + 自动跳下一题（加速）
-      if (practiceMode === 'smart') {
-        smartLock.groupTotal += 1;
-        if (correct) smartLock.groupCorrect += 1;
-        else smartLock.groupWrong += 1;
-
-        if (smartLock.remain > 0) smartLock.remain -= 1;
-
-        // 到组末尾：弹小结，不立刻跳题
-        if (smartLock.remain <= 0) {
-          openSmartSummary();
-          renderStats();
-          renderPlanSummary();
-          return;
-        }
-
-        currentIndex = pickSmartIndex();
-      }
-
-      renderQuestion();
-      renderStats();
-      renderPlanSummary();
-
-      // 若在错题模式下答对后被自动移出，可能导致队列变化，这里轻量刷新错题本数据
-      if (practiceMode === 'wrong') {
-        const ids = getWrongList();
-        const map = new Map(QUESTIONS.map(q => [q.id, q]));
-        wrongQueue = ids.map(id => map.get(id)).filter(Boolean);
-        if (currentIndex >= wrongQueue.length) currentIndex = Math.max(0, wrongQueue.length - 1);
-      }
+      const correct = correctSet.has(idx);
+      applyAnswer(idx, correct);
     });
 
     optWrap.appendChild(item);
   });
+
+  if (isMulti && !locked) {
+    const submitWrap = document.createElement('div');
+    submitWrap.className = 'mt-3 flex items-center justify-between';
+    submitWrap.innerHTML = `
+      <p class="text-sm text-neutral">已选 ${selectedSet.size} 项（多选需点“提交答案”判题）</p>
+      <button class="btn btn-primary" id="btn-submit-multi" ${selectedSet.size ? '' : 'disabled'}>提交答案</button>
+    `;
+    optWrap.appendChild(submitWrap);
+    qs('#btn-submit-multi')?.addEventListener('click', () => {
+      const picked = Array.from(new Set(getAnswerIndexes(practiceDraftAnswers[q.id] || []))).sort((a, b) => a - b);
+      const correct = isSameAnswerSet(picked, answerIndexes);
+      applyAnswer(picked, correct);
+    });
+  }
 
   // analysis
   const analysisBox = qs('#q-analysis');
@@ -436,12 +835,12 @@ function renderQuestion() {
 
   // note
   // 粗心提示：高亮常见关键词（当“粗心”错因占比较高时启用）
-  const reasonMap = getWrongReason();
-  const vals = Object.values(reasonMap || {});
-  const carelessRate = vals.length ? (vals.filter(x => x === 'careless').length / vals.length) : 0;
+  const hintReasonMap = getWrongReason();
+  const hintVals = Object.values(hintReasonMap || {});
+  const hintCarelessRate = hintVals.length ? (hintVals.filter(x => x === 'careless').length / hintVals.length) : 0;
   const hintEl = qs('#smart-group-hint');
   if (hintEl) {
-    if (carelessRate >= 0.4) {
+    if (hintCarelessRate >= 0.4) {
       hintEl.textContent = '提示：检测到你“粗心”占比较高，做题时重点关注题干中的“不/可以/必须/不得”等关键词。';
       hintEl.classList.remove('hidden');
     } else {
@@ -510,6 +909,8 @@ function openSmartSummary() {
 }
 
 function bindEvents() {
+  bindSettingsModal();
+
   // 导航
   qsa('.nav-item').forEach(item => {
     item.addEventListener('click', function() {
@@ -736,7 +1137,7 @@ function bindEvents() {
         return;
       }
       if (act === 'settings') {
-        alert('设置（原型占位）：后续可放考试目标分、智能锁定题数默认值、显示解析默认值等。');
+        openSettingsModal();
         return;
       }
     });
@@ -784,19 +1185,23 @@ function bindEvents() {
   // 模拟考试入口（先复用诊断/练题能力）
   qsa('[data-go-exam]').forEach(btn => {
     btn.addEventListener('click', () => {
-      // 先用诊断作为“考试”承载：标准=100题+45分钟；快速=50题+20分钟（简化）
+      const mode = btn.getAttribute('data-go-exam');
       showPage('diagnosis', '智能诊断');
-      // 标准考试：直接开始新诊断
-      startDiagnosis(true);
+      if (mode === 'quick') {
+        startDiagnosis(true, { examType: 'quick', total: QUICK_TOTAL, durationSec: QUICK_DURATION_SEC });
+      } else {
+        startDiagnosis(true, { examType: 'standard', total: DIAG_TOTAL, durationSec: DIAG_DURATION_SEC });
+      }
     });
   });
 
-  // 历史考试详情（占位：提示）
-  qsa('[data-exam-detail]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const t = btn.getAttribute('data-exam-detail');
-      alert('历史考试详情（原型占位）：' + t + '\n后续可接：答题明细/错题/知识点分析/回放。');
-    });
+  qs('#exam-detail-close')?.addEventListener('click', () => {
+    const m = qs('#exam-detail-modal');
+    m?.classList.add('hidden');
+    if (m?.__replayKeyHandler) {
+      document.removeEventListener('keydown', m.__replayKeyHandler);
+      m.__replayKeyHandler = null;
+    }
   });
 
   // 错题管理页按钮
@@ -888,8 +1293,11 @@ function startReviewPractice() {
 // ======================
 const DIAG_TOTAL = 100;
 const DIAG_DURATION_SEC = 45 * 60;
+const QUICK_TOTAL = 50;
+const QUICK_DURATION_SEC = 20 * 60;
+const PASS_SCORE = 90;
 
-function buildDiagnosisQueue() {
+function buildDiagnosisQueue(totalCount = DIAG_TOTAL) {
   // 半自适应：先覆盖知识点，再偏薄弱高频（不足则循环补齐）
   const km = getKnowledgeMastery();
   const now = Date.now();
@@ -919,12 +1327,12 @@ function buildDiagnosisQueue() {
     .sort((a, b) => b.s - a.s)
     .map(x => x.q);
 
-  const queue = [...cover, ...rest].slice(0, DIAG_TOTAL).map(q => q.id);
+  const queue = [...cover, ...rest].slice(0, totalCount).map(q => q.id);
 
-  // 若题库不足 DIAG_TOTAL，允许重复（循环补齐）
+  // 若题库不足 totalCount，允许重复（循环补齐）
   let i = 0;
   const fallback = rest.length ? rest : QUESTIONS;
-  while (queue.length < DIAG_TOTAL && fallback.length) {
+  while (queue.length < totalCount && fallback.length) {
     queue.push(fallback[i % fallback.length].id);
     i += 1;
     if (i > 10000) break;
@@ -935,12 +1343,19 @@ function buildDiagnosisQueue() {
 
 let diagTimer = null;
 
-function startDiagnosis(reset = false) {
+function startDiagnosis(reset = false, examOpts = {}) {
+  if (!QUESTIONS.length) {
+    showQuestionLoadHint();
+    return;
+  }
   if (reset) clearDiagnosis();
   let d = getDiagnosis();
+  const totalCount = Number(examOpts.total || d.total || DIAG_TOTAL);
+  const durationSec = Number(examOpts.durationSec || d.durationSec || DIAG_DURATION_SEC);
+  const examType = examOpts.examType || d.examType || 'standard';
 
   if (!d.queue?.length) {
-    const queue = buildDiagnosisQueue();
+    const queue = buildDiagnosisQueue(totalCount);
     d = {
       status: 'running',
       queue,
@@ -948,24 +1363,87 @@ function startDiagnosis(reset = false) {
       answers: {},
       startedAt: Date.now(),
       finishedAt: 0,
-      durationSec: DIAG_DURATION_SEC
+      durationSec,
+      total: totalCount,
+      examType,
+      savedExamId: ''
     };
   } else {
     d.status = 'running';
-    d.durationSec = d.durationSec || DIAG_DURATION_SEC;
+    d.durationSec = durationSec;
+    d.total = totalCount;
+    d.examType = examType;
   }
 
   setDiagnosis(d);
   renderDiagnosisQuiz();
 }
 
+function buildExamResultFromDiagnosis(d) {
+  const queue = d.queue || [];
+  const answers = d.answers || {};
+  const qMap = new Map(QUESTIONS.map(q => [q.id, q]));
+
+  let correct = 0;
+  const wrongIds = new Set();
+  const byKnowledge = {};
+
+  for (const qid of queue) {
+    const q = qMap.get(qid);
+    const ans = answers[qid];
+    const isCorrect = !!ans?.correct;
+    if (isCorrect) correct += 1;
+    else wrongIds.add(qid);
+
+    const kid = q?.knowledgeId || 'law.basic';
+    byKnowledge[kid] = byKnowledge[kid] || { total: 0, correct: 0 };
+    byKnowledge[kid].total += 1;
+    if (isCorrect) byKnowledge[kid].correct += 1;
+  }
+
+  const total = queue.length;
+  const score = total ? Math.round((correct / total) * 100) : 0;
+  const wrongReason = getWrongReason();
+  const wrongReasonStat = { memory: 0, understand: 0, careless: 0, trap: 0 };
+  Array.from(wrongIds).forEach(id => {
+    const r = wrongReason[id];
+    if (Object.prototype.hasOwnProperty.call(wrongReasonStat, r)) wrongReasonStat[r] += 1;
+  });
+
+  return {
+    id: d.savedExamId || `exam_${Date.now()}`,
+    startedAt: d.startedAt || 0,
+    finishedAt: d.finishedAt || Date.now(),
+    durationSec: d.startedAt ? Math.max(0, Math.round(((d.finishedAt || Date.now()) - d.startedAt) / 1000)) : (d.durationSec || 0),
+    examType: d.examType || 'standard',
+    total,
+    correct,
+    score,
+    wrongIds: Array.from(wrongIds),
+    byKnowledge,
+    wrongReasonStat,
+    queue: queue.slice(),
+    answers
+  };
+}
+
 function finishDiagnosis() {
   const d = getDiagnosis();
+  if (d.savedExamId && d.status === 'done') {
+    renderDiagnosisReport();
+    renderGlobalCTA();
+    renderExamPage();
+    return;
+  }
   d.status = 'done';
-  d.finishedAt = Date.now();
+  d.finishedAt = d.finishedAt || Date.now();
+  const result = buildExamResultFromDiagnosis(d);
+  saveExamResult(result);
+  d.savedExamId = result.id;
   setDiagnosis(d);
   renderDiagnosisReport();
   renderGlobalCTA();
+  renderExamPage();
 }
 
 function diagnosisCurrentQuestion() {
@@ -975,25 +1453,35 @@ function diagnosisCurrentQuestion() {
 }
 
 function renderDiagnosisHome() {
+  if (!QUESTIONS.length) {
+    showQuestionLoadHint();
+    return;
+  }
   const d = getDiagnosis();
   const box = qs('#diagnosis-box');
   if (!box) return;
 
-  const total = (d.queue && d.queue.length) ? d.queue.length : DIAG_TOTAL;
+  const total = (d.queue && d.queue.length) ? d.queue.length : (d.total || DIAG_TOTAL);
   const cur = d.cursor || 0;
+  const examType = d.examType === 'quick' ? '快速测试' : '标准考试';
 
   let statusText = '未开始';
   if (d.status === 'running') statusText = `进行中：${cur}/${total}`;
   if (d.status === 'done') statusText = '已完成';
 
   const examDate = getExamDate();
+  const currentOpts = {
+    examType: d.examType || 'standard',
+    total: d.total || (d.examType === 'quick' ? QUICK_TOTAL : DIAG_TOTAL),
+    durationSec: d.durationSec || (d.examType === 'quick' ? QUICK_DURATION_SEC : DIAG_DURATION_SEC)
+  };
 
   box.innerHTML = `
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
       <div>
-        <h4 class="text-lg font-bold">100题智能诊断（模拟考试）</h4>
+        <h4 class="text-lg font-bold">${total}题智能诊断（${examType}）</h4>
         <p class="text-neutral mt-1">状态：<span class="font-medium">${statusText}</span> · 考试日期：<span class="font-medium">${examDate || '未设置'}</span></p>
-        <p class="text-sm text-neutral mt-2">说明：当前为 Mock 题库，若题量不足会循环补齐到100题用于流程演示。完成后将输出薄弱知识点TOP、提分清单，并可一键进入智能加速练习。</p>
+        <p class="text-sm text-neutral mt-2">说明：当前为 Mock 题库，若题量不足会循环补齐到${total}题用于流程演示。完成后将输出薄弱知识点TOP、提分清单，并可一键进入智能加速练习。</p>
       </div>
       <div class="flex gap-2">
         ${d.status === 'running' ? '<button class="btn btn-primary" id="btn-diag-continue">继续诊断</button>' : '<button class="btn btn-primary" id="btn-diag-start">开始诊断</button>'}
@@ -1003,9 +1491,9 @@ function renderDiagnosisHome() {
     </div>
   `;
 
-  qs('#btn-diag-start')?.addEventListener('click', () => { startDiagnosis(true); renderGlobalCTA(); });
-  qs('#btn-diag-continue')?.addEventListener('click', () => { startDiagnosis(false); renderGlobalCTA(); });
-  qs('#btn-diag-reset')?.addEventListener('click', () => { startDiagnosis(true); renderGlobalCTA(); });
+  qs('#btn-diag-start')?.addEventListener('click', () => { startDiagnosis(true, currentOpts); renderGlobalCTA(); });
+  qs('#btn-diag-continue')?.addEventListener('click', () => { startDiagnosis(false, currentOpts); renderGlobalCTA(); });
+  qs('#btn-diag-reset')?.addEventListener('click', () => { startDiagnosis(true, currentOpts); renderGlobalCTA(); });
   qs('#btn-diag-report')?.addEventListener('click', () => { renderDiagnosisReport(); renderGlobalCTA(); });
 }
 
@@ -1058,6 +1546,12 @@ function renderDiagnosisQuiz() {
       </div>
 
       <div class="mt-4 space-y-3" id="diag-options"></div>
+      <div class="mt-3 hidden" id="diag-submit-wrap">
+        <div class="flex items-center justify-between">
+          <p class="text-sm text-neutral" id="diag-submit-tip"></p>
+          <button class="btn btn-primary" id="btn-diag-submit">提交答案</button>
+        </div>
+      </div>
 
       <div class="mt-4 hidden" id="diag-analysis">
         <div class="p-4 rounded-lg border border-gray-200 bg-gray-50">
@@ -1117,7 +1611,15 @@ function renderDiagnosisQuiz() {
   });
 
   const answered = d.answers?.[q.id];
-  const locked = typeof answered?.selected === 'number';
+  const isMulti = q.type === 'multi';
+  const correctIndexes = getAnswerIndexes(q.answer);
+  const correctSet = new Set(correctIndexes);
+  const locked = (typeof answered?.selected === 'number') || Array.isArray(answered?.selected);
+  if (isMulti && !Array.isArray(diagnosisDraftAnswers[q.id])) diagnosisDraftAnswers[q.id] = [];
+  const selectedIndexes = locked
+    ? getAnswerIndexes(answered?.selected)
+    : (isMulti ? getAnswerIndexes(diagnosisDraftAnswers[q.id] || []) : []);
+  const selectedSet = new Set(selectedIndexes);
 
   const optWrap = qs('#diag-options');
   optWrap.innerHTML = '';
@@ -1126,28 +1628,34 @@ function renderDiagnosisQuiz() {
     item.className = 'question-option';
 
     if (locked) {
-      if (oi === q.answer) item.classList.add('correct');
-      if (oi === answered.selected && oi !== q.answer) item.classList.add('incorrect');
+      if (correctSet.has(oi)) item.classList.add('correct');
+      if (selectedSet.has(oi) && !correctSet.has(oi)) item.classList.add('incorrect');
+    } else if (selectedSet.has(oi)) {
+      item.classList.add('selected');
     }
 
     item.innerHTML = `
-      <input type="radio" name="diagopt" ${locked ? 'disabled' : ''} ${answered?.selected === oi ? 'checked' : ''} />
+      <input type="${isMulti ? 'checkbox' : 'radio'}" name="diagopt" ${locked ? 'disabled' : ''} ${selectedSet.has(oi) ? 'checked' : ''} />
       <span>${q.type === 'tf' ? '' : String.fromCharCode(65 + oi) + '. '}${text}</span>
     `;
 
     item.addEventListener('click', () => {
       if (locked) return;
-      const correct = oi === q.answer;
+      if (isMulti) {
+        const cur = new Set(getAnswerIndexes(diagnosisDraftAnswers[q.id] || []));
+        if (cur.has(oi)) cur.delete(oi);
+        else cur.add(oi);
+        diagnosisDraftAnswers[q.id] = Array.from(cur).sort((a, b) => a - b);
+        renderDiagnosisQuiz();
+        return;
+      }
+      const correct = correctSet.has(oi);
       d.answers = d.answers || {};
       d.answers[q.id] = { selected: oi, correct, ts: Date.now() };
       setDiagnosis(d);
-
-      // 诊断也更新知识点掌握度（同一套模型）
       updateKnowledgeMastery(q.knowledgeId, correct, { frequency: q.frequency, difficulty: q.difficulty });
-
       const s = getSettings();
       if (s.diagnosisShowAnalysis) {
-        // 显示解析并等待“下一题”
         const box = qs('#diag-analysis');
         box.classList.remove('hidden');
         qs('#diag-analysis-text').textContent = q.analysis || '暂无解析';
@@ -1155,7 +1663,6 @@ function renderDiagnosisQuiz() {
           ? '<span class="text-success font-medium"><i class="fa fa-check-circle mr-2"></i>回答正确</span>'
           : '<span class="text-error font-medium"><i class="fa fa-times-circle mr-2"></i>回答错误</span>';
       } else {
-        // 不显示解析：直接给“下一题”按钮
         const nextOnly = qs('#diag-next-only');
         nextOnly.classList.remove('hidden');
       }
@@ -1164,8 +1671,44 @@ function renderDiagnosisQuiz() {
     optWrap.appendChild(item);
   });
 
+  const submitWrap = qs('#diag-submit-wrap');
+  const submitTip = qs('#diag-submit-tip');
+  const submitBtn = qs('#btn-diag-submit');
+  if (submitWrap && submitTip && submitBtn) {
+    if (isMulti && !locked) {
+      submitWrap.classList.remove('hidden');
+      submitTip.textContent = `已选 ${selectedSet.size} 项（多选需提交判题）`;
+      submitBtn.disabled = selectedSet.size === 0;
+      submitBtn.onclick = () => {
+        const picked = Array.from(new Set(getAnswerIndexes(diagnosisDraftAnswers[q.id] || []))).sort((a, b) => a - b);
+        const correct = isSameAnswerSet(picked, correctIndexes);
+        d.answers = d.answers || {};
+        d.answers[q.id] = { selected: picked, correct, ts: Date.now() };
+        setDiagnosis(d);
+        delete diagnosisDraftAnswers[q.id];
+        updateKnowledgeMastery(q.knowledgeId, correct, { frequency: q.frequency, difficulty: q.difficulty });
+        const s = getSettings();
+        if (s.diagnosisShowAnalysis) {
+          const box = qs('#diag-analysis');
+          box.classList.remove('hidden');
+          qs('#diag-analysis-text').textContent = q.analysis || '暂无解析';
+          qs('#diag-result').innerHTML = correct
+            ? '<span class="text-success font-medium"><i class="fa fa-check-circle mr-2"></i>回答正确</span>'
+            : '<span class="text-error font-medium"><i class="fa fa-times-circle mr-2"></i>回答错误</span>';
+        } else {
+          const nextOnly = qs('#diag-next-only');
+          nextOnly.classList.remove('hidden');
+        }
+      };
+    } else {
+      submitWrap.classList.add('hidden');
+      submitBtn.onclick = null;
+    }
+  }
+
   function goNext() {
     const d2 = getDiagnosis();
+    delete diagnosisDraftAnswers[q.id];
     d2.cursor = (d2.cursor || 0) + 1;
     setDiagnosis(d2);
     renderDiagnosisQuiz();
@@ -1534,7 +2077,7 @@ function bindHelpActions() {
         // 逐项清空（不直接依赖 storage.js 的 clearAllData 以避免循环import）
         const keys = [
           'qa.examDate','qa.progress','qa.favorites','qa.notes','qa.wrong','qa.wrongStreak','qa.daily',
-          'qa.knowledgeMastery','qa.diagnosis','qa.settings'
+          'qa.knowledgeMastery','qa.diagnosis','qa.settings','qa.wrongReason','qa.review','qa.examHistory'
         ];
         keys.forEach(k => localStorage.removeItem(k));
         alert('已清空本地数据。');
@@ -1567,7 +2110,7 @@ function renderWrongbook() {
     <div class="border border-gray-200 rounded-lg p-4 hover:border-primary transition-all">
       <div class="flex items-start justify-between gap-4">
         <div>
-          <p class="text-sm text-neutral">${q.id} · ${(q.type === 'tf' ? '判断' : '单选')} · ${(q.tags || []).join(' / ')}</p>
+          <p class="text-sm text-neutral">${q.id} · ${questionTypeText(q.type)} · ${(q.tags || []).join(' / ')}</p>
           <p class="font-medium mt-1">${q.stem}</p>
         </div>
         <div class="flex gap-2">
@@ -1601,6 +2144,329 @@ function renderWrongbook() {
   });
 }
 
+function formatDateTime(ts) {
+  if (!ts) return '-';
+  const d = new Date(ts);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+}
+
+function renderOptionLabel(q, idx) {
+  if (Array.isArray(idx)) {
+    if (!idx.length) return '未作答';
+    return idx
+      .map(i => renderOptionLabel(q, Number(i)))
+      .filter(Boolean)
+      .join('；');
+  }
+  if (typeof idx !== 'number' || !Array.isArray(q?.options) || idx < 0 || idx >= q.options.length) return '未作答';
+  const txt = q.options[idx];
+  if (q.type === 'tf') return String(txt);
+  return `${String.fromCharCode(65 + idx)}. ${txt}`;
+}
+
+function escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function highlightReplayKeywords(text) {
+  const raw = escapeHtml(text || '');
+  const re = /(不得|必须|可以|不可以|不能|不准|严禁|应当|不应当|允许|优先|让行|减速|停车|注意|观察)/g;
+  return raw.replace(re, '<mark class="bg-yellow-200 px-0.5 rounded">$1</mark>');
+}
+
+function renderExamDetail(record) {
+  const modal = qs('#exam-detail-modal');
+  const body = qs('#exam-detail-content');
+  if (!modal || !body || !record) return;
+
+  const wrongCount = Math.max(0, (record.total || 0) - (record.correct || 0));
+  const minutes = Math.max(1, Math.round((record.durationSec || 0) / 60));
+  const typeLabel = record.examType === 'quick' ? '快速测试' : '标准考试';
+  const byK = record.byKnowledge || {};
+  const topWeak = Object.keys(byK)
+    .map(k => {
+      const total = byK[k]?.total || 0;
+      const correct = byK[k]?.correct || 0;
+      return { kid: k, wrong: Math.max(0, total - correct), total, acc: total ? Math.round((correct / total) * 100) : 0 };
+    })
+    .filter(x => x.total > 0)
+    .sort((a, b) => b.wrong - a.wrong)
+    .slice(0, 3);
+
+  const reasonStat = record.wrongReasonStat || {};
+  const reasonLabel = {
+    memory: '记忆错误',
+    understand: '理解错误',
+    careless: '粗心',
+    trap: '陷阱'
+  };
+
+  body.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <div class="card"><p class="text-neutral">考试类型</p><p class="text-xl font-bold mt-1">${typeLabel}</p></div>
+      <div class="card"><p class="text-neutral">得分</p><p class="text-2xl font-bold mt-1">${record.score || 0}</p></div>
+      <div class="card"><p class="text-neutral">答对/总题</p><p class="text-2xl font-bold mt-1">${record.correct || 0}/${record.total || 0}</p></div>
+      <div class="card"><p class="text-neutral">用时</p><p class="text-2xl font-bold mt-1">${minutes} 分钟</p></div>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+      <div class="border border-gray-200 rounded-lg p-4">
+        <h5 class="font-bold mb-3">知识点失分 TOP3</h5>
+        ${topWeak.length ? topWeak.map(x => `
+          <div class="mb-3">
+            <div class="flex justify-between text-sm">
+              <span>${KNOWLEDGE_DICT[x.kid] || x.kid}</span>
+              <span>错 ${x.wrong} / ${x.total}（正确率 ${x.acc}%）</span>
+            </div>
+            <div class="progress-bar mt-1"><div class="progress-bar-fill" style="width:${x.acc}%"></div></div>
+          </div>
+        `).join('') : '<p class="text-neutral">暂无知识点统计。</p>'}
+      </div>
+      <div class="border border-gray-200 rounded-lg p-4">
+        <h5 class="font-bold mb-3">错因分布</h5>
+        ${Object.keys(reasonLabel).map(k => {
+          const n = Number(reasonStat[k] || 0);
+          const pct = wrongCount ? Math.round((n / wrongCount) * 100) : 0;
+          return `
+            <div class="mb-3">
+              <div class="flex justify-between text-sm text-neutral mb-1">
+                <span>${reasonLabel[k]}</span>
+                <span>${n}（${pct}%）</span>
+              </div>
+              <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+    <div class="border border-gray-200 rounded-lg p-4 mt-4">
+      <h5 class="font-bold mb-3">错题ID（${wrongCount}题）</h5>
+      <div class="flex flex-wrap gap-2">
+        ${(record.wrongIds || []).length
+          ? record.wrongIds.slice(0, 30).map((id, idx) => `<button class="badge badge-error" data-replay-jump="${idx}">${id}</button>`).join('')
+          : '<span class="text-neutral">无</span>'
+        }
+      </div>
+    </div>
+    <div class="border border-gray-200 rounded-lg p-4 mt-4" id="exam-replay-wrap">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <h5 class="font-bold">错题回放</h5>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary" id="replay-prev">上一题</button>
+          <button class="btn btn-secondary" id="replay-next">下一题</button>
+        </div>
+      </div>
+      <div id="exam-replay-box" class="bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm text-neutral"></div>
+    </div>
+  `;
+
+  const qMap = new Map(QUESTIONS.map(q => [q.id, q]));
+  const replayIds = (record.wrongIds || []).filter(id => qMap.has(id));
+  const answers = record.answers || {};
+  const replayCache = new Map();
+  let replayCursor = 0;
+
+  function getReplaySnapshot(idx) {
+    const safeIdx = (idx + replayIds.length) % replayIds.length;
+    if (replayCache.has(safeIdx)) return replayCache.get(safeIdx);
+    const qid = replayIds[safeIdx];
+    const q = qMap.get(qid);
+    const my = answers[qid] || {};
+    const snap = {
+      qid,
+      q,
+      my,
+      myLabel: escapeHtml(renderOptionLabel(q, my.selected)),
+      rightLabel: escapeHtml(renderOptionLabel(q, q.answer)),
+      stemHtml: highlightReplayKeywords(q?.stem || ''),
+      analysisHtml: highlightReplayKeywords(q?.analysis || '暂无解析')
+    };
+    replayCache.set(safeIdx, snap);
+    return snap;
+  }
+
+  function drawReplay() {
+    const box = qs('#exam-replay-box');
+    if (!box) return;
+    if (!replayIds.length) {
+      box.innerHTML = '本次没有错题，暂无回放内容。';
+      return;
+    }
+
+    const cur = getReplaySnapshot(replayCursor);
+    const prev = getReplaySnapshot(replayCursor - 1);
+    const next = getReplaySnapshot(replayCursor + 1);
+    const qid = cur.qid;
+    const q = cur.q;
+
+    // 预加载相邻题，减少切换时渲染抖动
+    getReplaySnapshot(replayCursor + 2);
+    getReplaySnapshot(replayCursor - 2);
+
+    box.innerHTML = `
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-neutral">第 ${replayCursor + 1}/${replayIds.length} 题 · ${qid}</p>
+        <span class="badge badge-error">答错</span>
+      </div>
+      <p class="text-xs text-neutral mb-2">上一题：${prev.qid} · 下一题：${next.qid}</p>
+      <p class="font-medium text-gray-900 mb-3">${cur.stemHtml}</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="border border-error/30 bg-red-50 rounded-lg p-3">
+          <p class="text-error font-medium">你的答案</p>
+          <p class="mt-1 text-gray-900">${cur.myLabel}</p>
+        </div>
+        <div class="border border-success/30 bg-green-50 rounded-lg p-3">
+          <p class="text-success font-medium">正确答案</p>
+          <p class="mt-1 text-gray-900">${cur.rightLabel}</p>
+        </div>
+      </div>
+      <div class="mt-3">
+        <p class="text-neutral"><strong>解析：</strong>${cur.analysisHtml}</p>
+      </div>
+      <div class="mt-4">
+        <p class="text-neutral mb-2"><strong>错因标记：</strong>请选择本题主要错因（用于后续智能推荐）</p>
+        <div class="flex flex-wrap gap-2" id="replay-reason-group">
+          ${(() => {
+            const selected = getWrongReason()?.[qid] || '';
+            const items = [
+              { v: 'memory', t: '记忆错误' },
+              { v: 'understand', t: '理解错误' },
+              { v: 'careless', t: '粗心' },
+              { v: 'trap', t: '陷阱' }
+            ];
+            return items.map(it => `
+              <button class="${selected === it.v ? 'btn btn-primary' : 'btn btn-secondary'}" data-replay-reason="${it.v}">
+                ${it.t}
+              </button>
+            `).join('');
+          })()}
+        </div>
+      </div>
+      <div class="mt-4 flex flex-wrap gap-2">
+        <button class="btn btn-outline" id="replay-add-wrong">加入错题本</button>
+        <button class="btn btn-primary" id="replay-practice-one">立即重练该题</button>
+      </div>
+    `;
+
+    qsa('[data-replay-reason]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const reason = btn.getAttribute('data-replay-reason');
+        if (!reason) return;
+        setWrongReasonForQuestion(qid, reason);
+        drawReplay();
+      });
+    });
+
+    qs('#replay-add-wrong')?.addEventListener('click', () => {
+      addWrong(qid);
+      renderStats();
+      const tip = qs('#exam-replay-box');
+      if (!tip) return;
+      const note = document.createElement('p');
+      note.className = 'text-success mt-3';
+      note.textContent = '已加入错题本。';
+      tip.appendChild(note);
+    });
+
+    qs('#replay-practice-one')?.addEventListener('click', () => {
+      const one = qMap.get(qid);
+      if (!one) return;
+      wrongQueue = [one];
+      practiceMode = 'wrong';
+      currentIndex = 0;
+      modal.classList.add('hidden');
+      showPage('practice', '错题重练');
+      renderQuestion();
+    });
+  }
+
+  qs('#replay-prev')?.addEventListener('click', () => {
+    if (!replayIds.length) return;
+    replayCursor = (replayCursor - 1 + replayIds.length) % replayIds.length;
+    drawReplay();
+  });
+
+  qs('#replay-next')?.addEventListener('click', () => {
+    if (!replayIds.length) return;
+    replayCursor = (replayCursor + 1) % replayIds.length;
+    drawReplay();
+  });
+
+  qsa('[data-replay-jump]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.getAttribute('data-replay-jump') || 0);
+      replayCursor = Math.max(0, Math.min(idx, replayIds.length - 1));
+      drawReplay();
+    });
+  });
+
+  if (modal.__replayKeyHandler) {
+    document.removeEventListener('keydown', modal.__replayKeyHandler);
+  }
+  modal.__replayKeyHandler = (e) => {
+    if (modal.classList.contains('hidden')) return;
+    if (!replayIds.length) return;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      replayCursor = (replayCursor - 1 + replayIds.length) % replayIds.length;
+      drawReplay();
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      replayCursor = (replayCursor + 1) % replayIds.length;
+      drawReplay();
+    }
+  };
+  document.addEventListener('keydown', modal.__replayKeyHandler);
+
+  drawReplay();
+  modal.classList.remove('hidden');
+}
+
+function renderExamPage() {
+  const body = qs('#exam-history-body');
+  if (!body) return;
+
+  const list = getExamHistory()
+    .slice()
+    .sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0));
+
+  if (!list.length) {
+    body.innerHTML = '<tr class="border-b border-gray-200"><td class="py-4 px-4 text-neutral" colspan="5">暂无考试记录。先完成一次标准考试或快速测试。</td></tr>';
+    return;
+  }
+
+  body.innerHTML = list.map(r => {
+    const typeLabel = r.examType === 'quick' ? '快速测试' : '标准考试';
+    const pass = Number(r.score || 0) >= PASS_SCORE;
+    return `
+      <tr class="border-b border-gray-200">
+        <td class="py-3 px-4">${formatDateTime(r.finishedAt)}</td>
+        <td class="py-3 px-4">${typeLabel}</td>
+        <td class="py-3 px-4">${r.score || 0}分</td>
+        <td class="py-3 px-4">${pass ? '<span class="badge badge-success">通过</span>' : '<span class="badge badge-error">未通过</span>'}</td>
+        <td class="py-3 px-4"><button class="text-primary hover:underline" data-exam-open="${r.id}">查看详情</button></td>
+      </tr>
+    `;
+  }).join('');
+
+  qsa('[data-exam-open]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-exam-open');
+      const rec = list.find(x => x.id === id);
+      renderExamDetail(rec);
+    });
+  });
+}
+
 function renderPlanPage() {
   const examDate = getExamDate();
   const examEl = qs('#plan-exam-date');
@@ -1608,7 +2474,7 @@ function renderPlanPage() {
   const progress = getProgress();
   const total = QUESTIONS.length;
   const done = progress.doneCount || 0;
-  const dailyTarget = calcDailyTarget(total, done, examDate);
+  const plan = getDynamicDailyPlan(total, done, examDate);
 
   const daily = getDaily();
   const today = todayStr();
@@ -1617,27 +2483,47 @@ function renderPlanPage() {
   const todayAcc = todayDone ? Math.round((todayRec.correct / todayDone) * 100) : 0;
 
   const remain = Math.max(total - done, 0);
-  const pct = dailyTarget ? Math.min(100, Math.round((todayDone / dailyTarget) * 100)) : 0;
+  const pct = plan.totalTarget ? Math.min(100, Math.round((todayDone / plan.totalTarget) * 100)) : 0;
 
   const box = qs('#plan-box');
+  const ratioText = `${Math.round(plan.newRatio * 100)}% 新题 / ${Math.round(plan.reviewRatio * 100)}% 复习`;
+  const riskBlock = plan.risk
+    ? `
+      <div class="card mt-4">
+        <p class="text-error font-semibold">进度风险提醒</p>
+        <p class="text-sm text-neutral mt-1">按当前剩余题量与倒计时，至少需要 ${plan.requiredPerDay} 新题/天才可能按时覆盖全题库，已超过系统建议上限 ${plan.maxNewPerDay} 新题/天。</p>
+        <p class="text-sm text-neutral mt-1">建议：延后考试日期或提高每日练题时长，并优先完成错题与高频考点复盘。</p>
+      </div>
+    `
+    : '';
   box.innerHTML = `
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div class="card">
         <p class="text-neutral">今日完成</p>
-        <p class="text-2xl font-bold mt-1">${todayDone}/${dailyTarget}</p>
+        <p class="text-2xl font-bold mt-1">${todayDone}/${plan.totalTarget}</p>
+        <p class="text-sm text-neutral mt-1">新题 ${plan.newTarget} + 复习 ${plan.reviewTarget}</p>
         <div class="progress-bar mt-3"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
       </div>
       <div class="card">
         <p class="text-neutral">今日正确率</p>
         <p class="text-2xl font-bold mt-1">${todayAcc}%</p>
-        <p class="text-sm text-neutral mt-1">（今日正确 ${todayRec.correct} 题）</p>
+        <p class="text-sm text-neutral mt-1">近3天正确率：${plan.recentAcc}% · 今日正确 ${todayRec.correct} 题</p>
       </div>
       <div class="card">
         <p class="text-neutral">剩余题量</p>
         <p class="text-2xl font-bold mt-1">${remain}</p>
-        <p class="text-sm text-neutral mt-1">总进度：${done}/${total}</p>
+        <p class="text-sm text-neutral mt-1">总进度：${done}/${total} · 到期复习：${plan.dueReview}</p>
       </div>
     </div>
+    <div class="card mt-4">
+      <p class="text-neutral">目标依据</p>
+      <p class="text-sm text-neutral mt-1">
+        ${examDate ? `考试倒计时：${Math.max(plan.daysLeft, 0)} 天 · 当前阶段：${plan.stageLabel}` : '考试日期未设置（建议尽快设置）'}
+        · 分配建议：${ratioText}
+        · 动态目标按“倒计时阶段 + 剩余题量/天数 + 近3天正确率 + 到期复习量”自动计算。
+      </p>
+    </div>
+    ${riskBlock}
   `;
 }
 
@@ -1785,7 +2671,7 @@ function renderKnowledgeView(allList) {
         return `
           <div class="flex items-center justify-between gap-3 border border-gray-200 rounded-lg p-3">
             <div>
-              <p class="text-sm text-neutral">${q.id} · ${(q.type === 'tf' ? '判断' : '单选')}</p>
+              <p class="text-sm text-neutral">${q.id} · ${questionTypeText(q.type)}</p>
               <p class="font-medium mt-1">${shortStem}</p>
               <div class="mt-2">${status}</div>
             </div>
@@ -1876,7 +2762,7 @@ function renderQuestionBank() {
       <div class="border border-gray-200 rounded-lg p-3 hover:border-primary transition-all">
         <div class="flex items-start justify-between gap-3">
           <div>
-            <p class="text-sm text-neutral">#${start + idx + 1} · ${q.id} · ${(q.type === 'tf' ? '判断' : '单选')} · ${kName}</p>
+            <p class="text-sm text-neutral">#${start + idx + 1} · ${q.id} · ${questionTypeText(q.type)} · ${kName}</p>
             <p class="font-medium mt-1">${shortStem}</p>
             <div class="mt-2 flex items-center gap-2">${status} <span class="text-xs">${star}</span></div>
           </div>
@@ -1960,7 +2846,7 @@ function renderQuestionBank() {
   if (startBtn && !startBtn.dataset.bound) {
     startBtn.dataset.bound = '1';
     startBtn.addEventListener('click', () => {
-      const list = bankFiltered().slice(0, 20);
+      const list = bankFiltered().slice(0, 100);
       startPracticeWithList(list, '筛选练习');
     });
   }
@@ -1980,11 +2866,13 @@ function renderQuestionBank() {
 
 async function main() {
   await loadQuestions();
+  if (!QUESTIONS.length) showQuestionLoadHint();
   bindEvents();
   bindGlobalCTA();
   renderStats();
   renderPlanSummary();
   renderGlobalCTA();
+  renderExamPage();
 }
 
 window.addEventListener('load', main);
