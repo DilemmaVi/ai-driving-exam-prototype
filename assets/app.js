@@ -644,19 +644,27 @@ function renderDiagnosisQuiz() {
 }
 
 function calcPredictedScoreFromMastery() {
-  // 简单近似：按知识点掌握度平均 * 100
+  // 加权预测：知识点掌握度按“题库中该知识点 frequency 总和”加权
   const km = getKnowledgeMastery();
   const kids = Object.keys(KNOWLEDGE_DICT);
-  let sum = 0;
-  let cnt = 0;
-  for (const k of kids) {
-    const m = km[k]?.mastery;
-    if (typeof m === 'number') {
-      sum += m;
-      cnt += 1;
-    }
+
+  // 统计每个知识点在题库里的权重（sum frequency）
+  const weightByK = {};
+  for (const q of QUESTIONS) {
+    const k = q.knowledgeId || 'law.basic';
+    const w = Number(q.frequency || 3);
+    weightByK[k] = (weightByK[k] || 0) + w;
   }
-  const avg = cnt ? (sum / cnt) : 0.5;
+
+  let wsum = 0;
+  let msum = 0;
+  for (const k of kids) {
+    const m = (typeof km[k]?.mastery === 'number') ? km[k].mastery : 0.5;
+    const w = weightByK[k] || 1;
+    wsum += w;
+    msum += m * w;
+  }
+  const avg = wsum ? (msum / wsum) : 0.5;
   return Math.round(avg * 100);
 }
 
@@ -671,20 +679,31 @@ function renderDiagnosisReport() {
   const score = calcPredictedScoreFromMastery();
   const km = getKnowledgeMastery();
 
+  // 权重：按题库 frequency 统计每知识点权重
+  const weightByK = {};
+  for (const q of QUESTIONS) {
+    const k = q.knowledgeId || 'law.basic';
+    weightByK[k] = (weightByK[k] || 0) + Number(q.frequency || 3);
+  }
+
   const rows = Object.keys(KNOWLEDGE_DICT).map(k => {
     const m = km[k]?.mastery ?? 0.5;
-    return { k, name: KNOWLEDGE_DICT[k], mastery: m };
+    const w = weightByK[k] || 1;
+    // 提分潜力：薄弱程度 * 权重
+    const roi = (1 - m) * w;
+    return { k, name: KNOWLEDGE_DICT[k], mastery: m, weight: w, roi };
   }).sort((a,b) => a.mastery - b.mastery);
 
   const topWeak = rows.slice(0, 10);
+  const topROI = [...rows].sort((a,b) => b.roi - a.roi).slice(0, 5);
 
   report.innerHTML = `
     <div class="card mb-6">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h4 class="text-lg font-bold">诊断报告</h4>
-          <p class="text-neutral mt-1">预测得分（近似）：<span class="text-primary font-bold text-xl">${score}</span> 分</p>
-          <p class="text-sm text-neutral mt-2">提示：这是根据“知识点掌握度”计算的近似值，用于指导刷题优先级。</p>
+          <p class="text-neutral mt-1">预测得分（加权）：<span class="text-primary font-bold text-xl">${score}</span> 分</p>
+          <p class="text-sm text-neutral mt-2">口径：知识点掌握度按题库考频（frequency）加权，优先反映“高频短板”。</p>
         </div>
         <div class="flex gap-2">
           <button class="btn btn-primary" id="btn-go-smart">一键进入智能加速练习</button>
@@ -692,29 +711,66 @@ function renderDiagnosisReport() {
         </div>
       </div>
 
-      <div class="mt-6">
-        <h5 class="font-bold mb-3">薄弱知识点 TOP10</h5>
-        <div class="space-y-3">
-          ${topWeak.map(r => {
-            const pct = Math.round(r.mastery * 100);
-            return `
-              <div class="border border-gray-200 rounded-lg p-4">
-                <div class="flex items-center justify-between">
-                  <div>
-                    <p class="font-medium">${r.name}</p>
-                    <p class="text-sm text-neutral mt-1">掌握度：${pct}%</p>
-                  </div>
-                  <div class="w-40">
-                    <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+      <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <h5 class="font-bold mb-3">提分清单 TOP5（ROI）</h5>
+          <div class="space-y-3">
+            ${topROI.map(r => {
+              const pct = Math.round(r.mastery * 100);
+              const roi = r.roi.toFixed(1);
+              return `
+                <div class="border border-gray-200 rounded-lg p-4">
+                  <div class="flex items-center justify-between gap-4">
+                    <div>
+                      <p class="font-medium">${r.name}</p>
+                      <p class="text-sm text-neutral mt-1">掌握度：${pct}% · 权重：${r.weight} · 提分潜力：${roi}</p>
+                    </div>
+                    <div>
+                      <button class="btn btn-outline" data-roi-practice="${r.k}">去专项练习</button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            `;
-          }).join('')}
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <div>
+          <h5 class="font-bold mb-3">薄弱知识点 TOP10</h5>
+          <div class="space-y-3">
+            ${topWeak.map(r => {
+              const pct = Math.round(r.mastery * 100);
+              return `
+                <div class="border border-gray-200 rounded-lg p-4">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <p class="font-medium">${r.name}</p>
+                      <p class="text-sm text-neutral mt-1">掌握度：${pct}%</p>
+                    </div>
+                    <div class="w-40">
+                      <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
         </div>
       </div>
     </div>
   `;
+
+  qsa('[data-roi-practice]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const kid = btn.getAttribute('data-roi-practice');
+      // 进入练题页，切到智能模式，同时优先从该知识点出一题
+      practiceMode = 'smart';
+      const idx = QUESTIONS.findIndex(q => (q.knowledgeId || 'law.basic') === kid);
+      currentIndex = idx >= 0 ? idx : pickSmartIndex();
+      showPage('practice', '专项练习');
+      renderQuestion();
+    });
+  });
 
   qs('#btn-go-smart')?.addEventListener('click', () => {
     // 跳转练题并进入智能模式
