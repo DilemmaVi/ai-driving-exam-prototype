@@ -28,6 +28,7 @@ python3 -m http.server 5173
 - `qa.diagnosis`：100题诊断状态（queue/cursor/answers/startedAt/finishedAt/durationSec）
 - `qa.settings`：用户设置（diagnosisShowAnalysis、smartLockN）
 - `qa.wrongReason`：错因选择（questionId -> memory/understand/careless/trap）
+- `qa.review`：到期复习调度（questionId -> nextTs/intervalDays）
 
 ## 如何清空本地数据
 在浏览器控制台执行：
@@ -43,5 +44,6 @@ localStorage.removeItem('qa.knowledgeMastery');
 localStorage.removeItem('qa.diagnosis');
 localStorage.removeItem('qa.settings');
 localStorage.removeItem('qa.wrongReason');
+localStorage.removeItem('qa.review');
 ```
 或在浏览器设置里清空站点数据。

@@ -12,7 +12,8 @@ export const LS_KEYS = {
   KNOWLEDGE: 'qa.knowledgeMastery', // { [knowledgeId]: { mastery:number, attempts:number, correct:number, lastTs:number } }
   DIAGNOSIS: 'qa.diagnosis', // { status, queue, cursor, answers, startedAt, finishedAt }
   SETTINGS: 'qa.settings', // { diagnosisShowAnalysis:boolean, smartLockN:number }
-  WRONG_REASON: 'qa.wrongReason' // { [questionId]: 'memory'|'understand'|'careless'|'trap' }
+  WRONG_REASON: 'qa.wrongReason', // { [questionId]: 'memory'|'understand'|'careless'|'trap' }
+  REVIEW: 'qa.review' // { [questionId]: nextTs:number, intervalDays:number }
 };
 
 function safeJsonParse(raw, fallback) {
@@ -251,6 +252,36 @@ export function setWrongReasonForQuestion(questionId, reason) {
   map[questionId] = reason;
   setWrongReason(map);
   return map;
+}
+
+export function getReview() {
+  return safeJsonParse(localStorage.getItem(LS_KEYS.REVIEW), {});
+}
+
+export function setReview(map) {
+  localStorage.setItem(LS_KEYS.REVIEW, JSON.stringify(map || {}));
+}
+
+export function scheduleReview(questionId, correct) {
+  const r = getReview();
+  const cur = r[questionId] || { nextTs: 0, intervalDays: 0 };
+  let interval = Number(cur.intervalDays || 0);
+
+  if (correct) {
+    // 简单间隔：1 -> 3 -> 7 -> 14
+    if (interval <= 0) interval = 1;
+    else if (interval <= 1) interval = 3;
+    else if (interval <= 3) interval = 7;
+    else interval = 14;
+  } else {
+    interval = 1;
+  }
+
+  cur.intervalDays = interval;
+  cur.nextTs = Date.now() + interval * 24 * 3600 * 1000;
+  r[questionId] = cur;
+  setReview(r);
+  return r;
 }
 
 export function clearDiagnosis() {

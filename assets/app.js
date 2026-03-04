@@ -19,7 +19,9 @@ import {
   getSettings,
   setSettings,
   setWrongReasonForQuestion,
-  getWrongReason
+  getWrongReason,
+  scheduleReview,
+  getReview
 } from './storage.js';
 
 let QUESTIONS = [];
@@ -180,20 +182,23 @@ const KNOWLEDGE_DICT = {
   'police_command': '交警手势与指挥'
 };
 
-let practiceMode = 'all'; // all | wrong | smart | knowledge
+let practiceMode = 'all'; // all | wrong | smart | knowledge | review
 let wrongQueue = [];
 let knowledgeQueue = [];
 let knowledgeTitle = '';
+let reviewQueue = [];
 
 function getCurrentQuestion() {
   if (practiceMode === 'wrong') return wrongQueue[currentIndex];
   if (practiceMode === 'knowledge') return knowledgeQueue[currentIndex];
+  if (practiceMode === 'review') return reviewQueue[currentIndex];
   return QUESTIONS[currentIndex];
 }
 
 function getCurrentTotal() {
   if (practiceMode === 'wrong') return wrongQueue.length;
   if (practiceMode === 'knowledge') return knowledgeQueue.length;
+  if (practiceMode === 'review') return reviewQueue.length;
   return QUESTIONS.length;
 }
 
@@ -209,7 +214,7 @@ function smartScoreQuestion(q, km, progress, now) {
   return base * donePenalty;
 }
 
-let smartLock = { kid: '', remain: 0 };
+let smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
 
 function pickSmartIndex(preferKnowledgeId = '') {
   const progress = getProgress();
@@ -241,7 +246,14 @@ function pickSmartIndex(preferKnowledgeId = '') {
   // 初始化/刷新锁定：当没有锁定时，锁定到 best 的知识点
   const bestKid = best.knowledgeId || 'law.basic';
   if (!smartLock.kid || smartLock.remain <= 0) {
-    smartLock = { kid: bestKid, remain: lockN };
+    smartLock = {
+      kid: bestKid,
+      remain: lockN,
+      groupTotal: 0,
+      groupCorrect: 0,
+      groupWrong: 0,
+      groupStartTs: Date.now()
+    };
   }
 
   const idx = QUESTIONS.findIndex(x => x.id === best.id);
@@ -258,10 +270,24 @@ function renderQuestion() {
   qs('#q-index').textContent = String(currentIndex + 1);
   qs('#q-total').textContent = String(getCurrentTotal());
   qs('#q-id').textContent = q.id;
-  qs('#q-stem').textContent = q.stem;
+  // 题干渲染（支持“粗心关键词提示”时做轻度高亮）
+  const stemEl = qs('#q-stem');
+  const stemText = String(q.stem || '');
+  const reasonMap = getWrongReason();
+  const vals = Object.values(reasonMap || {});
+  const carelessRate = vals.length ? (vals.filter(x => x === 'careless').length / vals.length) : 0;
+  if (stemEl) {
+    if (carelessRate >= 0.4) {
+      const re = /(不得|必须|可以|不可以|不能|不准|严禁|应当|不应当|允许)/g;
+      stemEl.innerHTML = stemText.replace(re, '<span class="text-error font-bold">$1</span>');
+    } else {
+      stemEl.textContent = stemText;
+    }
+  }
   qs('#q-tags').innerHTML = (q.tags || []).map(t => `<span class="badge badge-warning">${t}</span>`).join('')
     + (practiceMode === 'wrong' ? '<span class="badge badge-error">错题重练</span>' : '')
-    + (practiceMode === 'knowledge' ? `<span class="badge badge-success">专项：${knowledgeTitle || kName}</span>` : '');
+    + (practiceMode === 'knowledge' ? `<span class="badge badge-success">专项：${knowledgeTitle || kName}</span>` : '')
+    + (practiceMode === 'review' ? `<span class="badge badge-warning">到期复习</span>` : '');
 
   // 收藏
   const favBtn = qs('#btn-fav');
@@ -327,6 +353,8 @@ function renderQuestion() {
       upsertAnswer(q.id, idx, correct, { wrongClearThreshold: 2 });
       // 更新知识点掌握度
       updateKnowledgeMastery(q.knowledgeId, correct, { frequency: q.frequency, difficulty: q.difficulty });
+      // 安排复习（遗忘曲线）
+      scheduleReview(q.id, correct);
 
       // 专项模式：错题插队（1-2题后再出现一次）
       if (practiceMode === 'knowledge' && !correct) {
@@ -334,10 +362,22 @@ function renderQuestion() {
         knowledgeQueue.splice(insertPos, 0, q);
       }
 
-      // 智能模式：答完自动跳下一题（加速）
+      // 智能模式：组统计 + 自动跳下一题（加速）
       if (practiceMode === 'smart') {
-        // 消耗一次锁定计数
+        smartLock.groupTotal += 1;
+        if (correct) smartLock.groupCorrect += 1;
+        else smartLock.groupWrong += 1;
+
         if (smartLock.remain > 0) smartLock.remain -= 1;
+
+        // 到组末尾：弹小结，不立刻跳题
+        if (smartLock.remain <= 0) {
+          openSmartSummary();
+          renderStats();
+          renderPlanSummary();
+          return;
+        }
+
         currentIndex = pickSmartIndex();
       }
 
@@ -395,6 +435,21 @@ function renderQuestion() {
   }
 
   // note
+  // 粗心提示：高亮常见关键词（当“粗心”错因占比较高时启用）
+  const reasonMap = getWrongReason();
+  const vals = Object.values(reasonMap || {});
+  const carelessRate = vals.length ? (vals.filter(x => x === 'careless').length / vals.length) : 0;
+  const hintEl = qs('#smart-group-hint');
+  if (hintEl) {
+    if (carelessRate >= 0.4) {
+      hintEl.textContent = '提示：检测到你“粗心”占比较高，做题时重点关注题干中的“不/可以/必须/不得”等关键词。';
+      hintEl.classList.remove('hidden');
+    } else {
+      hintEl.classList.add('hidden');
+    }
+  }
+
+  // note
   const note = getNote(q.id);
   const noteEl = qs('#q-note');
   noteEl.value = note;
@@ -418,6 +473,40 @@ function renderStats() {
   const wrongCount = (getWrongList() || []).length;
   const wrongBadge = qs('#stat-wrong');
   if (wrongBadge) wrongBadge.textContent = String(wrongCount);
+}
+
+function openSmartSummary() {
+  const modal = qs('#smart-summary-modal');
+  const content = qs('#smart-summary-content');
+  if (!modal || !content) {
+    // fallback：如果没渲染到 modal，直接继续
+    currentIndex = pickSmartIndex();
+    renderQuestion();
+    return;
+  }
+
+  const settings = getSettings();
+  const lockN = Number(settings.smartLockN || 5);
+  const used = smartLock.groupTotal;
+  const acc = used ? Math.round((smartLock.groupCorrect / used) * 100) : 0;
+  const mins = Math.max(1, Math.round((Date.now() - (smartLock.groupStartTs || Date.now())) / 60000));
+
+  const km = getKnowledgeMastery();
+  const m = km[smartLock.kid]?.mastery;
+  const mText = (typeof m === 'number') ? `${Math.round(m * 100)}%` : '—';
+
+  content.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div class="card"><p class="text-neutral">本组知识点</p><p class="text-xl font-bold mt-1">${KNOWLEDGE_DICT[smartLock.kid] || smartLock.kid}</p></div>
+      <div class="card"><p class="text-neutral">本组正确率</p><p class="text-2xl font-bold mt-1">${acc}%</p><p class="text-sm text-neutral mt-1">${smartLock.groupCorrect}/${used} 题</p></div>
+      <div class="card"><p class="text-neutral">当前掌握度</p><p class="text-2xl font-bold mt-1">${mText}</p><p class="text-sm text-neutral mt-1">本组用时约 ${mins} 分钟</p></div>
+    </div>
+    <div class="bg-gray-50 p-4 rounded-lg text-sm text-neutral">
+      <p><strong>下一步：</strong>继续下一组（每组 ${lockN} 题），系统将优先安排你的高频短板与到期复习。</p>
+    </div>
+  `;
+
+  modal.classList.remove('hidden');
 }
 
 function bindEvents() {
@@ -466,6 +555,9 @@ function bindEvents() {
   qs('#btn-next').addEventListener('click', () => {
     if (practiceMode === 'smart') {
       currentIndex = pickSmartIndex();
+    } else if (practiceMode === 'review') {
+      startReviewPractice();
+      return;
     } else {
       if (currentIndex < getCurrentTotal() - 1) currentIndex += 1;
     }
@@ -482,13 +574,26 @@ function bindEvents() {
       s.smartLockN = Number(smartSel.value || 5);
       setSettings(s);
       // 重置当前锁定，使新配置立刻生效
-      smartLock = { kid: '', remain: 0 };
+      smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
       if (practiceMode === 'smart') {
         currentIndex = pickSmartIndex();
         renderQuestion();
       }
     });
   }
+
+  // 智能组小结弹窗
+  const smartModal = qs('#smart-summary-modal');
+  const smartClose = qs('#close-smart-summary');
+  const smartContinue = qs('#smart-summary-continue');
+  smartClose?.addEventListener('click', () => smartModal?.classList.add('hidden'));
+  smartContinue?.addEventListener('click', () => {
+    smartModal?.classList.add('hidden');
+    // 进入下一组：重置锁定，让 pickSmartIndex 重新选“最优知识点”
+    smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
+    currentIndex = pickSmartIndex();
+    renderQuestion();
+  });
 
   // 专项小结
   const summaryBtn = qs('#btn-knowledge-summary');
@@ -567,6 +672,7 @@ function bindEvents() {
       btn.classList.add('btn-primary');
 
       if (practiceMode === 'smart') {
+        smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
         currentIndex = pickSmartIndex();
       } else if (practiceMode === 'wrong') {
         startWrongPractice();
@@ -601,7 +707,7 @@ function bindEvents() {
     btn.addEventListener('click', () => {
       practiceMode = 'smart';
       // 重置锁定，让智能配置立即生效
-      smartLock = { kid: '', remain: 0 };
+      smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
       currentIndex = pickSmartIndex();
       showPage('practice', '练题');
       renderQuestion();
@@ -717,7 +823,7 @@ function bindEvents() {
   qsa('[data-go-crash]').forEach(btn => {
     btn.addEventListener('click', () => {
       practiceMode = 'smart';
-      smartLock = { kid: '', remain: 0 };
+      smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
       currentIndex = pickSmartIndex();
       showPage('practice', '练题');
       renderQuestion();
@@ -749,6 +855,31 @@ function startWrongPractice() {
   practiceMode = 'wrong';
   currentIndex = 0;
   showPage('practice', '错题重练');
+  renderQuestion();
+}
+
+function startReviewPractice() {
+  const r = getReview();
+  const dueIds = Object.keys(r)
+    .filter(id => (r[id]?.nextTs || 0) <= Date.now())
+    .slice(0, 50);
+
+  const map = new Map(QUESTIONS.map(q => [q.id, q]));
+  reviewQueue = dueIds.map(id => map.get(id)).filter(Boolean);
+
+  if (!reviewQueue.length) {
+    alert('暂无到期复习题（原型提示）。继续智能加速或稍后再来。');
+    practiceMode = 'smart';
+    smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
+    currentIndex = pickSmartIndex();
+    showPage('practice', '练题');
+    renderQuestion();
+    return;
+  }
+
+  practiceMode = 'review';
+  currentIndex = 0;
+  showPage('practice', '到期复习');
   renderQuestion();
 }
 
