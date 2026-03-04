@@ -118,16 +118,21 @@ const KNOWLEDGE_DICT = {
   'police_command': '交警手势与指挥'
 };
 
-let practiceMode = 'all'; // all | wrong | smart
+let practiceMode = 'all'; // all | wrong | smart | knowledge
 let wrongQueue = [];
+let knowledgeQueue = [];
+let knowledgeTitle = '';
 
 function getCurrentQuestion() {
   if (practiceMode === 'wrong') return wrongQueue[currentIndex];
+  if (practiceMode === 'knowledge') return knowledgeQueue[currentIndex];
   return QUESTIONS[currentIndex];
 }
 
 function getCurrentTotal() {
-  return practiceMode === 'wrong' ? wrongQueue.length : QUESTIONS.length;
+  if (practiceMode === 'wrong') return wrongQueue.length;
+  if (practiceMode === 'knowledge') return knowledgeQueue.length;
+  return QUESTIONS.length;
 }
 
 function smartScoreQuestion(q, km, progress, now) {
@@ -176,7 +181,8 @@ function renderQuestion() {
   qs('#q-id').textContent = q.id;
   qs('#q-stem').textContent = q.stem;
   qs('#q-tags').innerHTML = (q.tags || []).map(t => `<span class="badge badge-warning">${t}</span>`).join('')
-    + (practiceMode === 'wrong' ? '<span class="badge badge-error">错题重练</span>' : '');
+    + (practiceMode === 'wrong' ? '<span class="badge badge-error">错题重练</span>' : '')
+    + (practiceMode === 'knowledge' ? `<span class="badge badge-success">专项：${knowledgeTitle || kName}</span>` : '');
 
   // 收藏
   const favBtn = qs('#btn-fav');
@@ -203,6 +209,9 @@ function renderQuestion() {
       const freq = Number(q.frequency || 3);
       const m = (typeof mastery === 'number') ? mastery : 0.5;
       reasonEl.textContent = `推荐原因：高频权重 ${freq}/5 + 当前掌握度 ${(m * 100).toFixed(0)}%（优先补短板）`;
+      reasonEl.classList.remove('hidden');
+    } else if (practiceMode === 'knowledge') {
+      reasonEl.textContent = `专项练习：${knowledgeTitle || kName} · 剩余 ${Math.max(0, getCurrentTotal() - (currentIndex + 1))} 题`;
       reasonEl.classList.remove('hidden');
     } else {
       reasonEl.classList.add('hidden');
@@ -241,6 +250,9 @@ function renderQuestion() {
       // 智能模式：答完自动跳下一题（加速）
       if (practiceMode === 'smart') {
         currentIndex = pickSmartIndex();
+      }
+      if (practiceMode === 'knowledge') {
+        // 保持在专项队列内
       }
 
       renderQuestion();
@@ -668,6 +680,39 @@ function calcPredictedScoreFromMastery() {
   return Math.round(avg * 100);
 }
 
+function startKnowledgePractice(knowledgeId, targetCount = 20) {
+  const list = QUESTIONS.filter(q => (q.knowledgeId || 'law.basic') === knowledgeId);
+  if (!list.length) {
+    // fallback to smart
+    practiceMode = 'smart';
+    currentIndex = pickSmartIndex();
+    showPage('practice', '练题');
+    renderQuestion();
+    return;
+  }
+
+  // 先放入未做过的，再循环补齐到 targetCount
+  const progress = getProgress();
+  const unanswered = list.filter(q => !progress.answered?.[q.id]);
+  const answered = list.filter(q => progress.answered?.[q.id]);
+  const base = [...unanswered, ...answered];
+
+  const queue = [];
+  let i = 0;
+  while (queue.length < Math.min(targetCount, Math.max(targetCount, base.length)) && base.length) {
+    queue.push(base[i % base.length]);
+    i += 1;
+    if (i > 200) break;
+  }
+
+  knowledgeQueue = queue;
+  knowledgeTitle = KNOWLEDGE_DICT[knowledgeId] || knowledgeId;
+  practiceMode = 'knowledge';
+  currentIndex = 0;
+  showPage('practice', '专项练习');
+  renderQuestion();
+}
+
 function renderDiagnosisReport() {
   showPage('diagnosis', '智能诊断');
 
@@ -763,12 +808,7 @@ function renderDiagnosisReport() {
   qsa('[data-roi-practice]').forEach(btn => {
     btn.addEventListener('click', () => {
       const kid = btn.getAttribute('data-roi-practice');
-      // 进入练题页，切到智能模式，同时优先从该知识点出一题
-      practiceMode = 'smart';
-      const idx = QUESTIONS.findIndex(q => (q.knowledgeId || 'law.basic') === kid);
-      currentIndex = idx >= 0 ? idx : pickSmartIndex();
-      showPage('practice', '专项练习');
-      renderQuestion();
+      startKnowledgePractice(kid, 20);
     });
   });
 
