@@ -247,12 +247,15 @@ function renderQuestion() {
       // 更新知识点掌握度
       updateKnowledgeMastery(q.knowledgeId, correct, { frequency: q.frequency, difficulty: q.difficulty });
 
+      // 专项模式：错题插队（1-2题后再出现一次）
+      if (practiceMode === 'knowledge' && !correct) {
+        const insertPos = Math.min(knowledgeQueue.length, currentIndex + 2);
+        knowledgeQueue.splice(insertPos, 0, q);
+      }
+
       // 智能模式：答完自动跳下一题（加速）
       if (practiceMode === 'smart') {
         currentIndex = pickSmartIndex();
-      }
-      if (practiceMode === 'knowledge') {
-        // 保持在专项队列内
       }
 
       renderQuestion();
@@ -282,6 +285,16 @@ function renderQuestion() {
     qs('#q-analysis-text').textContent = q.analysis || '暂无解析';
   } else {
     analysisBox.classList.add('hidden');
+  }
+
+  // 专项模式：到最后一题后显示小结入口
+  const summaryBtn = qs('#btn-knowledge-summary');
+  if (summaryBtn) {
+    if (practiceMode === 'knowledge' && locked && currentIndex === getCurrentTotal() - 1) {
+      summaryBtn.classList.remove('hidden');
+    } else {
+      summaryBtn.classList.add('hidden');
+    }
   }
 
   // note
@@ -358,6 +371,60 @@ function bindEvents() {
     renderQuestion();
   });
 
+  // 专项小结
+  const summaryBtn = qs('#btn-knowledge-summary');
+  const modal = qs('#knowledge-summary-modal');
+  const closeBtn = qs('#close-knowledge-summary');
+  const nextBtn = qs('#knowledge-summary-next');
+
+  function openSummary() {
+    if (!modal) return;
+    const content = qs('#knowledge-summary-content');
+    const progress = getProgress();
+    const answered = progress.answered || {};
+
+    const items = (knowledgeQueue || []).map(q => ({
+      id: q.id,
+      correct: answered[q.id]?.correct
+    }));
+    const done = items.filter(x => typeof x.correct === 'boolean').length;
+    const correctN = items.filter(x => x.correct === true).length;
+    const acc = done ? Math.round((correctN / done) * 100) : 0;
+
+    // 估算掌握度提升：拿当前知识点 mastery 显示即可
+    const km = getKnowledgeMastery();
+    const kid = (knowledgeQueue?.[0]?.knowledgeId) || '';
+    const m = km[kid]?.mastery;
+    const mText = (typeof m === 'number') ? `${Math.round(m * 100)}%` : '—';
+
+    content.innerHTML = `
+      <div class="card">
+        <p class="text-neutral">专项</p>
+        <p class="text-xl font-bold mt-1">${knowledgeTitle || '—'}</p>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div class="card"><p class="text-neutral">完成题数</p><p class="text-2xl font-bold mt-1">${done}/${getCurrentTotal()}</p></div>
+        <div class="card"><p class="text-neutral">正确率</p><p class="text-2xl font-bold mt-1">${acc}%</p></div>
+        <div class="card"><p class="text-neutral">当前掌握度</p><p class="text-2xl font-bold mt-1">${mText}</p></div>
+      </div>
+      <div class="bg-gray-50 p-4 rounded-lg">
+        <p class="text-sm text-neutral">建议：如果正确率低于80%，再做一轮专项；如果≥80%，进入智能加速继续补其他高频短板。</p>
+      </div>
+    `;
+
+    modal.classList.remove('hidden');
+  }
+
+  summaryBtn?.addEventListener('click', openSummary);
+  closeBtn?.addEventListener('click', () => modal?.classList.add('hidden'));
+  nextBtn?.addEventListener('click', () => {
+    modal?.classList.add('hidden');
+    practiceMode = 'smart';
+    currentIndex = pickSmartIndex();
+    showPage('practice', '练题');
+    renderQuestion();
+  });
+
   // 模式切换
   qsa('[data-practice-mode]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -367,6 +434,9 @@ function bindEvents() {
 
       if (practiceMode === 'smart') {
         currentIndex = pickSmartIndex();
+      } else if (practiceMode === 'wrong') {
+        startWrongPractice();
+        return;
       } else {
         currentIndex = 0;
       }
@@ -699,7 +769,7 @@ function startKnowledgePractice(knowledgeId, targetCount = 20) {
 
   const queue = [];
   let i = 0;
-  while (queue.length < Math.min(targetCount, Math.max(targetCount, base.length)) && base.length) {
+  while (queue.length < targetCount && base.length) {
     queue.push(base[i % base.length]);
     i += 1;
     if (i > 200) break;
