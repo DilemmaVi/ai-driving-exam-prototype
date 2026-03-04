@@ -67,6 +67,64 @@ function calcDailyTarget(total, done, examDate) {
   return dailyTarget;
 }
 
+function getGlobalCTAState() {
+  const d = getDiagnosis();
+  const progress = getProgress();
+
+  if (d.status === 'running') {
+    return { text: `继续诊断（${d.cursor || 0}/${d.queue?.length || DIAG_TOTAL}）`, action: 'diagnosis_continue' };
+  }
+
+  // 未诊断或诊断未开始：引导诊断
+  if (d.status === 'idle' || !d.queue?.length) {
+    return { text: '开始100题诊断（推荐）', action: 'diagnosis_start' };
+  }
+
+  // 已诊断：进入智能加速
+  if (d.status === 'done') {
+    return { text: '开始智能加速练习', action: 'practice_smart' };
+  }
+
+  // fallback
+  if ((progress.doneCount || 0) === 0) {
+    return { text: '开始100题诊断（推荐）', action: 'diagnosis_start' };
+  }
+  return { text: '开始智能加速练习', action: 'practice_smart' };
+}
+
+function renderGlobalCTA() {
+  const btn = qs('#global-cta');
+  if (!btn) return;
+  const st = getGlobalCTAState();
+  btn.textContent = st.text;
+  btn.dataset.action = st.action;
+}
+
+function bindGlobalCTA() {
+  const btn = qs('#global-cta');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const action = btn.dataset.action;
+    if (action === 'diagnosis_start') {
+      showPage('diagnosis', '智能诊断');
+      startDiagnosis(true);
+      return;
+    }
+    if (action === 'diagnosis_continue') {
+      showPage('diagnosis', '智能诊断');
+      startDiagnosis(false);
+      return;
+    }
+    if (action === 'practice_smart') {
+      practiceMode = 'smart';
+      currentIndex = pickSmartIndex();
+      showPage('practice', '练题');
+      renderQuestion();
+      return;
+    }
+  });
+}
+
 function renderPlanSummary() {
   const examDate = getExamDate();
   const progress = getProgress();
@@ -421,6 +479,21 @@ function bindEvents() {
   closeBtn?.addEventListener('click', () => modal?.classList.add('hidden'));
   nextBtn?.addEventListener('click', () => {
     modal?.classList.add('hidden');
+
+    // 若存在 ROI 串练队列，则自动进入下一专项
+    if (window.__roiChain && Array.isArray(window.__roiChain)) {
+      const nextI = (window.__roiChainIndex || 0) + 1;
+      if (nextI < window.__roiChain.length) {
+        window.__roiChainIndex = nextI;
+        startKnowledgePractice(window.__roiChain[nextI], 20);
+        return;
+      } else {
+        // 串练结束，清理
+        window.__roiChain = null;
+        window.__roiChainIndex = 0;
+      }
+    }
+
     practiceMode = 'smart';
     currentIndex = pickSmartIndex();
     showPage('practice', '练题');
@@ -582,6 +655,7 @@ function finishDiagnosis() {
   d.finishedAt = Date.now();
   setDiagnosis(d);
   renderDiagnosisReport();
+  renderGlobalCTA();
 }
 
 function diagnosisCurrentQuestion() {
@@ -619,10 +693,10 @@ function renderDiagnosisHome() {
     </div>
   `;
 
-  qs('#btn-diag-start')?.addEventListener('click', () => startDiagnosis(true));
-  qs('#btn-diag-continue')?.addEventListener('click', () => startDiagnosis(false));
-  qs('#btn-diag-reset')?.addEventListener('click', () => startDiagnosis(true));
-  qs('#btn-diag-report')?.addEventListener('click', () => renderDiagnosisReport());
+  qs('#btn-diag-start')?.addEventListener('click', () => { startDiagnosis(true); renderGlobalCTA(); });
+  qs('#btn-diag-continue')?.addEventListener('click', () => { startDiagnosis(false); renderGlobalCTA(); });
+  qs('#btn-diag-reset')?.addEventListener('click', () => { startDiagnosis(true); renderGlobalCTA(); });
+  qs('#btn-diag-report')?.addEventListener('click', () => { renderDiagnosisReport(); renderGlobalCTA(); });
 }
 
 function renderDiagnosisQuiz() {
@@ -894,6 +968,7 @@ function renderDiagnosisReport() {
         </div>
         <div class="flex gap-2">
           <button class="btn btn-primary" id="btn-go-smart">一键进入智能加速练习</button>
+          <button class="btn btn-outline" id="btn-roi-chain">一键串练ROI专项（5×20题）</button>
           <button class="btn btn-outline" id="btn-diag-redo">重新诊断</button>
         </div>
       </div>
@@ -947,11 +1022,22 @@ function renderDiagnosisReport() {
     </div>
   `;
 
+  // ROI 串练：按当前报告的 ROI 排序依次做专项
+  const roiOrder = topROI.map(x => x.k);
+
   qsa('[data-roi-practice]').forEach(btn => {
     btn.addEventListener('click', () => {
       const kid = btn.getAttribute('data-roi-practice');
       startKnowledgePractice(kid, 20);
     });
+  });
+
+  qs('#btn-roi-chain')?.addEventListener('click', () => {
+    if (!roiOrder.length) return;
+    // 存到 window 上，供专项小结使用（轻量实现）
+    window.__roiChain = roiOrder;
+    window.__roiChainIndex = 0;
+    startKnowledgePractice(roiOrder[0], 20);
   });
 
   qs('#btn-go-smart')?.addEventListener('click', () => {
@@ -960,9 +1046,11 @@ function renderDiagnosisReport() {
     currentIndex = pickSmartIndex();
     showPage('practice', '练题');
     renderQuestion();
+    renderGlobalCTA();
   });
   qs('#btn-diag-redo')?.addEventListener('click', () => {
     startDiagnosis(true);
+    renderGlobalCTA();
   });
 
   // 标记 done
@@ -1108,8 +1196,10 @@ function renderQuestionBank() {
 async function main() {
   await loadQuestions();
   bindEvents();
+  bindGlobalCTA();
   renderStats();
   renderPlanSummary();
+  renderGlobalCTA();
 }
 
 window.addEventListener('load', main);
