@@ -494,7 +494,7 @@
                                         <p class="text-sm text-neutral">预计用时 15分钟</p>
                                     </div>
                                 </div>
-                                <button class="btn btn-primary">开始练习</button>
+                                <button class="btn btn-primary" data-go-practice="1">开始练习</button>
                             </div>
                             <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-primary transition-all">
                                 <div class="flex items-center gap-3">
@@ -506,7 +506,7 @@
                                         <p class="text-sm text-neutral">预计用时 10分钟</p>
                                     </div>
                                 </div>
-                                <button class="btn btn-primary">开始练习</button>
+                                <button class="btn btn-primary" data-go-practice="1">开始练习</button>
                             </div>
                         </div>
                     </div>
@@ -836,12 +836,12 @@
                             <div class="border border-gray-200 rounded-lg p-6 hover:border-primary transition-all">
                                 <h4 class="font-bold mb-3">标准考试</h4>
                                 <p class="text-neutral mb-4">100道题，45分钟</p>
-                                <button class="btn btn-primary w-full">开始考试</button>
+                                <button class="btn btn-primary w-full" data-go-exam="standard">开始考试</button>
                             </div>
                             <div class="border border-gray-200 rounded-lg p-6 hover:border-primary transition-all">
                                 <h4 class="font-bold mb-3">快速测试</h4>
                                 <p class="text-neutral mb-4">50道题，20分钟</p>
-                                <button class="btn btn-primary w-full">开始测试</button>
+                                <button class="btn btn-primary w-full" data-go-exam="quick">开始测试</button>
                             </div>
                         </div>
                         
@@ -864,21 +864,21 @@
                                             <td class="py-3 px-4">标准考试</td>
                                             <td class="py-3 px-4">85分</td>
                                             <td class="py-3 px-4"><span class="badge badge-success">通过</span></td>
-                                            <td class="py-3 px-4"><button class="text-primary hover:underline">查看详情</button></td>
+                                            <td class="py-3 px-4"><button class="text-primary hover:underline" data-exam-detail="2026-03-03 14:30">查看详情</button></td>
                                         </tr>
                                         <tr class="border-b border-gray-200">
                                             <td class="py-3 px-4">2026-03-02 10:15</td>
                                             <td class="py-3 px-4">快速测试</td>
                                             <td class="py-3 px-4">72分</td>
                                             <td class="py-3 px-4"><span class="badge badge-success">通过</span></td>
-                                            <td class="py-3 px-4"><button class="text-primary hover:underline">查看详情</button></td>
+                                            <td class="py-3 px-4"><button class="text-primary hover:underline" data-exam-detail="2026-03-02 10:15">查看详情</button></td>
                                         </tr>
                                         <tr class="border-b border-gray-200">
                                             <td class="py-3 px-4">2026-03-01 16:45</td>
                                             <td class="py-3 px-4">标准考试</td>
                                             <td class="py-3 px-4">65分</td>
                                             <td class="py-3 px-4"><span class="badge badge-error">未通过</span></td>
-                                            <td class="py-3 px-4"><button class="text-primary hover:underline">查看详情</button></td>
+                                            <td class="py-3 px-4"><button class="text-primary hover:underline" data-exam-detail="2026-03-01 16:45">查看详情</button></td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -893,10 +893,10 @@
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="text-xl font-bold">错题管理</h3>
                             <div class="flex gap-3">
-                                <button class="btn btn-outline">
+                                <button class="btn btn-outline" data-wq-action="repractice">
                                     <i class="fa fa-refresh mr-2"></i>重新练习
                                 </button>
-                                <button class="btn btn-outline">
+                                <button class="btn btn-outline" data-wq-action="clear">
                                     <i class="fa fa-trash mr-2"></i>清空错题
                                 </button>
                             </div>
@@ -1003,7 +1003,7 @@
                                 </div>
                                 <h4 class="font-bold mb-2">考前3天冲刺</h4>
                                 <p class="text-neutral mb-4">重点突破高频考点，快速提分</p>
-                                <button class="btn btn-primary w-full">开始冲刺</button>
+                                <button class="btn btn-primary w-full" data-go-crash="3d">开始冲刺</button>
                             </div>
                             <div class="border border-gray-200 rounded-lg p-6 hover:border-primary transition-all">
                                 <div class="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
@@ -1011,7 +1011,7 @@
                                 </div>
                                 <h4 class="font-bold mb-2">考前1天强化</h4>
                                 <p class="text-neutral mb-4">聚焦易错点，巩固记忆</p>
-                                <button class="btn btn-primary w-full">开始强化</button>
+                                <button class="btn btn-primary w-full" data-go-crash="1d">开始强化</button>
                             </div>
                         </div>
                         
@@ -1157,6 +1157,7 @@
                             <p><strong>今日计划：</strong>根据考试日期与剩余题量计算今日目标，并统计今日完成/正确率。</p>
                             <p><strong>题库（已优化）：</strong>支持搜索（题干/ID）、按状态/题型/知识点/收藏筛选、分页浏览，并支持“练习当前筛选（20题）”和“将筛选结果加入收藏”。</p>
                             <p><strong>题库视图切换（新）：</strong>支持“列表”与“按知识点”两种视图。切换后会自动回到题库区域顶部，避免你滚动在页面下方导致“看起来像没变化”。在“按知识点”视图里可查看每个知识点的掌握度、题量、未掌握数，并一键进入该知识点专项20题。</p>
+                            <p><strong>提示：</strong>题库页的“练习当前筛选（20题）/将筛选结果加入收藏”以及“模拟考试/错题管理/考前冲刺”等按钮都已接入可点击行为（原型版部分为占位提示，后续可接真实数据）。</p>
                         </div>
                     </div>
 

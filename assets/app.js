@@ -596,13 +596,16 @@ function bindEvents() {
     });
   });
 
-  // 从个性学习页/首页进入练题
+  // 从个性学习页/首页进入练题（改为默认走智能加速）
   qsa('[data-go-practice="1"]').forEach(btn => {
     btn.addEventListener('click', () => {
-      practiceMode = 'all';
-      currentIndex = 0;
+      practiceMode = 'smart';
+      // 重置锁定，让智能配置立即生效
+      smartLock = { kid: '', remain: 0 };
+      currentIndex = pickSmartIndex();
       showPage('practice', '练题');
       renderQuestion();
+      renderGlobalCTA();
     });
   });
 
@@ -612,6 +615,55 @@ function bindEvents() {
       startWrongPractice();
     });
   }
+
+  // 模拟考试入口（先复用诊断/练题能力）
+  qsa('[data-go-exam]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // 先用诊断作为“考试”承载：标准=100题+45分钟；快速=50题+20分钟（简化）
+      showPage('diagnosis', '智能诊断');
+      // 标准考试：直接开始新诊断
+      startDiagnosis(true);
+    });
+  });
+
+  // 历史考试详情（占位：提示）
+  qsa('[data-exam-detail]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const t = btn.getAttribute('data-exam-detail');
+      alert('历史考试详情（原型占位）：' + t + '\n后续可接：答题明细/错题/知识点分析/回放。');
+    });
+  });
+
+  // 错题管理页按钮
+  qsa('[data-wq-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = btn.getAttribute('data-wq-action');
+      if (act === 'repractice') {
+        showPage('wrongbook', '错题本');
+        renderWrongbook();
+        startWrongPractice();
+      }
+      if (act === 'clear') {
+        const ok = confirm('确认清空错题本与错题计数？');
+        if (!ok) return;
+        localStorage.removeItem('qa.wrong');
+        localStorage.removeItem('qa.wrongStreak');
+        renderWrongbook();
+        renderStats();
+      }
+    });
+  });
+
+  // 考前冲刺入口：先跳转到智能加速（后续可做冲刺策略）
+  qsa('[data-go-crash]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      practiceMode = 'smart';
+      smartLock = { kid: '', remain: 0 };
+      currentIndex = pickSmartIndex();
+      showPage('practice', '练题');
+      renderQuestion();
+    });
+  });
 
   // 同步考试日期：复用首页 date picker 的 confirm
   const confirm = qs('#confirm-date');
