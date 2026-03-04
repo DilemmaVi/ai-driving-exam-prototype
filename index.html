@@ -769,9 +769,54 @@
                         <div class="flex items-center justify-between gap-4">
                             <div>
                                 <h3 class="text-xl font-bold">题库</h3>
-                                <p class="text-neutral mt-1">查看所有题目状态（未做/已掌握/未掌握），并快速跳转做题。</p>
+                                <p class="text-neutral mt-1">支持搜索、筛选、分页与批量开练。适合“找题”和“挑题练”。</p>
+                            </div>
+                            <div class="text-sm text-neutral" id="bank-meta"></div>
+                        </div>
+
+                        <div class="mt-4 grid grid-cols-1 md:grid-cols-6 gap-3" id="bank-filters">
+                            <div class="md:col-span-2 relative">
+                                <input id="bank-search" type="text" placeholder="搜索题干或ID…" class="w-full border border-gray-300 rounded-md px-4 py-2 pl-10" />
+                                <i class="fa fa-search absolute left-3 top-3 text-neutral"></i>
+                            </div>
+                            <select id="bank-status" class="border border-gray-300 rounded-md px-3 py-2">
+                                <option value="all">全部状态</option>
+                                <option value="unanswered">未做</option>
+                                <option value="correct">已掌握</option>
+                                <option value="wrong">未掌握</option>
+                            </select>
+                            <select id="bank-type" class="border border-gray-300 rounded-md px-3 py-2">
+                                <option value="all">全部题型</option>
+                                <option value="single">单选</option>
+                                <option value="tf">判断</option>
+                            </select>
+                            <select id="bank-knowledge" class="border border-gray-300 rounded-md px-3 py-2">
+                                <option value="all">全部知识点</option>
+                            </select>
+                            <div class="flex items-center gap-2">
+                                <label class="flex items-center gap-2 text-sm text-neutral">
+                                    <input id="bank-fav" type="checkbox" />
+                                    <span>仅收藏</span>
+                                </label>
+                                <select id="bank-sort" class="border border-gray-300 rounded-md px-3 py-2">
+                                    <option value="priority">默认排序</option>
+                                    <option value="id">按ID</option>
+                                </select>
                             </div>
                         </div>
+
+                        <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+                            <div class="flex gap-2">
+                                <button class="btn btn-primary" id="bank-start-filter"><i class="fa fa-play-circle mr-2"></i>练习当前筛选（20题）</button>
+                                <button class="btn btn-outline" id="bank-add-fav">将筛选结果加入收藏</button>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button class="btn btn-secondary" id="bank-prev">上一页</button>
+                                <span class="text-sm text-neutral" id="bank-page">1/1</span>
+                                <button class="btn btn-secondary" id="bank-next">下一页</button>
+                            </div>
+                        </div>
+
                         <div class="mt-6 space-y-3" id="bank-list"></div>
                     </div>
                 </div>
@@ -1105,7 +1150,7 @@
                         <h4 class="text-lg font-bold mb-3">7. 今日计划与题库页</h4>
                         <div class="space-y-3 text-neutral">
                             <p><strong>今日计划：</strong>根据考试日期与剩余题量计算今日目标，并统计今日完成/正确率。</p>
-                            <p><strong>题库：</strong>展示每题状态（未做/已掌握/未掌握）并可跳转到指定题。</p>
+                            <p><strong>题库（已优化）：</strong>支持搜索（题干/ID）、按状态/题型/知识点/收藏筛选、分页浏览，并支持“练习当前筛选（20题）”和“将筛选结果加入收藏”。</p>
                         </div>
                     </div>
 

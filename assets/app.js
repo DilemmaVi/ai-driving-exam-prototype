@@ -1399,21 +1399,128 @@ function renderPlanPage() {
   `;
 }
 
+const bankState = {
+  q: '',
+  status: 'all',
+  type: 'all',
+  knowledge: 'all',
+  favOnly: false,
+  sort: 'priority',
+  page: 1,
+  pageSize: 20
+};
+
+function getFavoritesSet() {
+  return new Set(JSON.parse(localStorage.getItem('qa.favorites') || '[]'));
+}
+
+function bankFiltered() {
+  const progress = getProgress();
+  const fav = getFavoritesSet();
+  const q = (bankState.q || '').trim().toLowerCase();
+
+  let list = QUESTIONS.slice();
+
+  if (q) {
+    list = list.filter(x => (x.id + ' ' + x.stem).toLowerCase().includes(q));
+  }
+
+  if (bankState.status !== 'all') {
+    list = list.filter(x => {
+      const a = progress.answered?.[x.id];
+      if (bankState.status === 'unanswered') return !a;
+      if (bankState.status === 'correct') return a && a.correct === true;
+      if (bankState.status === 'wrong') return a && a.correct === false;
+      return true;
+    });
+  }
+
+  if (bankState.type !== 'all') {
+    list = list.filter(x => x.type === bankState.type);
+  }
+
+  if (bankState.knowledge !== 'all') {
+    list = list.filter(x => (x.knowledgeId || 'law.basic') === bankState.knowledge);
+  }
+
+  if (bankState.favOnly) {
+    list = list.filter(x => fav.has(x.id));
+  }
+
+  // 排序
+  if (bankState.sort === 'id') {
+    list.sort((a,b) => String(a.id).localeCompare(String(b.id)));
+  } else {
+    // 默认：未做优先 -> 未掌握 -> 已掌握
+    const rank = (x) => {
+      const a = progress.answered?.[x.id];
+      if (!a) return 0;
+      if (a.correct === false) return 1;
+      return 2;
+    };
+    list.sort((a,b) => {
+      const ra = rank(a), rb = rank(b);
+      if (ra !== rb) return ra - rb;
+      return String(a.id).localeCompare(String(b.id));
+    });
+  }
+
+  return list;
+}
+
+function startPracticeWithList(list, title = '练题') {
+  if (!list.length) return;
+  // 将该列表作为 knowledgeQueue 复用（不改变其含义：这里当作“筛选队列”）
+  knowledgeQueue = list;
+  knowledgeTitle = title;
+  practiceMode = 'knowledge';
+  currentIndex = 0;
+  showPage('practice', title);
+  renderQuestion();
+}
+
 function renderQuestionBank() {
   const wrap = qs('#bank-list');
+  const meta = qs('#bank-meta');
+  const pageEl = qs('#bank-page');
   const progress = getProgress();
-  const fav = new Set(JSON.parse(localStorage.getItem('qa.favorites') || '[]'));
+  const fav = getFavoritesSet();
 
-  wrap.innerHTML = QUESTIONS.map((q, idx) => {
+  // 初始化知识点下拉
+  const selK = qs('#bank-knowledge');
+  if (selK && selK.options.length <= 1) {
+    Object.keys(KNOWLEDGE_DICT).forEach(k => {
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = KNOWLEDGE_DICT[k];
+      selK.appendChild(opt);
+    });
+  }
+
+  const all = bankFiltered();
+  const total = all.length;
+  const pages = Math.max(1, Math.ceil(total / bankState.pageSize));
+  bankState.page = Math.max(1, Math.min(bankState.page, pages));
+
+  const start = (bankState.page - 1) * bankState.pageSize;
+  const slice = all.slice(start, start + bankState.pageSize);
+
+  if (meta) meta.textContent = `共 ${QUESTIONS.length} 题 · 筛选后 ${total} 题 · 每页 ${bankState.pageSize} 题`;
+  if (pageEl) pageEl.textContent = `${bankState.page}/${pages}`;
+
+  wrap.innerHTML = slice.map((q, idx) => {
     const a = progress.answered?.[q.id];
     const status = a ? (a.correct ? '<span class="badge badge-success">已掌握</span>' : '<span class="badge badge-error">未掌握</span>') : '<span class="badge">未做</span>';
     const star = fav.has(q.id) ? '<i class="fa fa-star text-warning"></i>' : '<i class="fa fa-star-o text-neutral"></i>';
+    const kName = KNOWLEDGE_DICT[q.knowledgeId] || '未标注';
+    const stem = String(q.stem || '');
+    const shortStem = stem.length > 46 ? stem.slice(0, 46) + '…' : stem;
     return `
       <div class="border border-gray-200 rounded-lg p-3 hover:border-primary transition-all">
         <div class="flex items-start justify-between gap-3">
           <div>
-            <p class="text-sm text-neutral">#${idx + 1} · ${q.id} · ${(q.type === 'tf' ? '判断' : '单选')} · ${(q.tags || []).join(' / ')}</p>
-            <p class="font-medium mt-1">${q.stem}</p>
+            <p class="text-sm text-neutral">#${start + idx + 1} · ${q.id} · ${(q.type === 'tf' ? '判断' : '单选')} · ${kName}</p>
+            <p class="font-medium mt-1">${shortStem}</p>
             <div class="mt-2 flex items-center gap-2">${status} <span class="text-xs">${star}</span></div>
           </div>
           <div class="flex gap-2">
@@ -1434,6 +1541,69 @@ function renderQuestionBank() {
       renderQuestion();
     });
   });
+
+  // 绑定控件事件（只绑定一次）
+  const search = qs('#bank-search');
+  if (search && !search.dataset.bound) {
+    search.dataset.bound = '1';
+    search.addEventListener('input', () => { bankState.q = search.value; bankState.page = 1; renderQuestionBank(); });
+  }
+  const st = qs('#bank-status');
+  if (st && !st.dataset.bound) {
+    st.dataset.bound = '1';
+    st.addEventListener('change', () => { bankState.status = st.value; bankState.page = 1; renderQuestionBank(); });
+  }
+  const tp = qs('#bank-type');
+  if (tp && !tp.dataset.bound) {
+    tp.dataset.bound = '1';
+    tp.addEventListener('change', () => { bankState.type = tp.value; bankState.page = 1; renderQuestionBank(); });
+  }
+  const kn = qs('#bank-knowledge');
+  if (kn && !kn.dataset.bound) {
+    kn.dataset.bound = '1';
+    kn.addEventListener('change', () => { bankState.knowledge = kn.value; bankState.page = 1; renderQuestionBank(); });
+  }
+  const favOnly = qs('#bank-fav');
+  if (favOnly && !favOnly.dataset.bound) {
+    favOnly.dataset.bound = '1';
+    favOnly.addEventListener('change', () => { bankState.favOnly = !!favOnly.checked; bankState.page = 1; renderQuestionBank(); });
+  }
+  const sort = qs('#bank-sort');
+  if (sort && !sort.dataset.bound) {
+    sort.dataset.bound = '1';
+    sort.addEventListener('change', () => { bankState.sort = sort.value; bankState.page = 1; renderQuestionBank(); });
+  }
+  const prev = qs('#bank-prev');
+  if (prev && !prev.dataset.bound) {
+    prev.dataset.bound = '1';
+    prev.addEventListener('click', () => { bankState.page = Math.max(1, bankState.page - 1); renderQuestionBank(); });
+  }
+  const next = qs('#bank-next');
+  if (next && !next.dataset.bound) {
+    next.dataset.bound = '1';
+    next.addEventListener('click', () => { bankState.page = Math.min(pages, bankState.page + 1); renderQuestionBank(); });
+  }
+
+  const startBtn = qs('#bank-start-filter');
+  if (startBtn && !startBtn.dataset.bound) {
+    startBtn.dataset.bound = '1';
+    startBtn.addEventListener('click', () => {
+      const list = bankFiltered().slice(0, 20);
+      startPracticeWithList(list, '筛选练习');
+    });
+  }
+
+  const addFavBtn = qs('#bank-add-fav');
+  if (addFavBtn && !addFavBtn.dataset.bound) {
+    addFavBtn.dataset.bound = '1';
+    addFavBtn.addEventListener('click', () => {
+      const ids = bankFiltered().map(x => x.id);
+      const set = getFavoritesSet();
+      ids.forEach(id => set.add(id));
+      localStorage.setItem('qa.favorites', JSON.stringify(Array.from(set)));
+      renderQuestionBank();
+    });
+  }
 }
 
 async function main() {
