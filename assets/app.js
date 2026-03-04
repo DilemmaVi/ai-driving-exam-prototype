@@ -399,7 +399,8 @@ function bindEvents() {
         'exam': '模拟考试',
         'wrong-questions': '错题管理',
         'crash-course': '考前冲刺',
-        'report': '学习报告'
+        'report': '学习报告',
+        'help': '使用说明'
       };
       showPage(target, titles[target] || '');
       if (target === 'practice') {
