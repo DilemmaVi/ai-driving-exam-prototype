@@ -12,6 +12,8 @@
   - `answer`: `answer_correct[0] - 1`（转为 0-based）
 - 知识点说明：
   - 导出数据统一落为基础字段，前端加载时会按题干/选项/解析关键词自动归类到知识点（用于智能练习、专项练习、诊断报告）。
+- 冲刺专项模拟说明：
+  - 考前冲刺中的“薄弱知识点专项模拟”按该知识点实际题量组卷，题量为 `min(该知识点题量, 100)`，不做重复补题。
 
 ## 本地预览
 ```bash
@@ -21,12 +23,16 @@ python3 -m http.server 5173
 浏览器打开： http://127.0.0.1:5173/
 
 ## 功能（当前）
-- 左侧导航新增：`练题` / `错题本` / `今日计划` / `题库`
-- 练题支持：单选/判断、上一题/下一题、答题后显示对错与解析、收藏、笔记
-- 练题支持：单选/判断/多选（多选需提交判题）、上一题/下一题、答题后显示对错与解析、收藏、笔记
-- 错题本：答错自动入错题；支持错题重练；支持从错题本移除
-- 今日计划：根据考试日期与剩余题量生成今日目标，并统计“今日完成/今日正确率”
-- 题库：展示每题状态（未做/已掌握/未掌握）并可跳转到指定题
+- 账号与学员：支持“驾校登录 + 学员登录（扫码/账号密码/调试创建）”，学员数据独立保存与切换
+- 训练上下文：支持城市/车型/科目设置（`qa.trainingContext`），用于个性化学习引导
+- 首页“今日3步任务”：弱项专项20题 -> 到期复习 -> 快速模考，支持自动进度打勾与下一步直达
+- 智能诊断：100题、45分钟；支持继续/重置、显示解析开关、完成后生成诊断报告
+- 练题模式：`顺序`（未做优先/全量顺序）/`智能`/`复习`/`错题`/`专项`
+- 智能练题：支持同知识点锁定组练（`5/10/20/30/40/50`），并显示每组小结
+- 错题闭环：答错自动入错题本；同题连续答对2次自动移出；支持错因标记（记忆/理解/粗心/陷阱）
+- 学习报告：包含通过预测、薄弱知识点、错因分布、复习执行、专属学习画像（高效学习时段/主错因/主攻弱项）
+- 题库：支持搜索、状态/题型/知识点/收藏筛选、分页、列表/按知识点视图、筛选开练
+- 考前冲刺：统一走模拟考试流程；薄弱知识点“专项模拟”按该知识点实际题量组卷（上限100，不强补）
 
 ## 数据存储（localStorage keys）
 - `qa.examDate`：考试日期（YYYY-MM-DD）
@@ -42,6 +48,10 @@ python3 -m http.server 5173
 - `qa.wrongReason`：错因选择（questionId -> memory/understand/careless/trap）
 - `qa.review`：到期复习调度（questionId -> nextTs/intervalDays）
 - `qa.examHistory`：模拟考试历史记录（最近 50 次，含每题作答明细用于错题回放）
+- `qa.learnerProfile`：学习画像（总作答/正确率/连续表现/错因统计/按知识点与时段分布）
+- `qa.learningEvents`：学习行为事件流（最近 500 条，用于今日任务进度与个性化反馈）
+- `qa.trainingContext`：训练上下文（city/carType/subject）
+- `qa.orgSession` / `qa.activeStudent` / `qa.orgStudents.*` / `qa.snapshot.*`：驾校-学员登录态与学员数据快照
 
 ## 如何清空本地数据
 在浏览器控制台执行：
@@ -59,5 +69,10 @@ localStorage.removeItem('qa.settings');
 localStorage.removeItem('qa.wrongReason');
 localStorage.removeItem('qa.review');
 localStorage.removeItem('qa.examHistory');
+localStorage.removeItem('qa.learnerProfile');
+localStorage.removeItem('qa.learningEvents');
+localStorage.removeItem('qa.trainingContext');
+localStorage.removeItem('qa.orgSession');
+localStorage.removeItem('qa.activeStudent');
 ```
 或在浏览器设置里清空站点数据。

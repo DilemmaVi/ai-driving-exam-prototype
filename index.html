@@ -86,6 +86,22 @@
             .question-option.incorrect {
                 @apply border-error bg-error/5;
             }
+            .select-pretty {
+                @apply w-full appearance-none border border-gray-300 rounded-lg px-3 py-2 pr-9 bg-white text-sm shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary;
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+                background-repeat: no-repeat;
+                background-position: right 0.65rem center;
+                background-size: 14px;
+            }
+            .select-pretty option {
+                color: #1f2937;
+                background-color: #ffffff;
+                padding: 8px 10px;
+            }
+            .select-pretty option:checked {
+                background: linear-gradient(0deg, #eaf3ff 0%, #eaf3ff 100%);
+                color: #0f5ec7;
+            }
         }
     </style>
 </head>
@@ -392,18 +408,25 @@
             <!-- 导航菜单 -->
             <nav class="flex-1 overflow-y-auto p-4">
                 <div class="space-y-1">
+                        <p class="px-3 pt-1 pb-1 text-[11px] tracking-wide text-neutral uppercase">学习路径</p>
                         <div class="nav-item active" data-target="home">
                             <i class="fa fa-home w-5 text-center"></i>
                             <span>首页</span>
                         </div>
+                        <div class="nav-item" data-target="plan">
+                            <i class="fa fa-bullseye w-5 text-center"></i>
+                            <span>今日计划</span>
+                        </div>
                         <div class="nav-item" data-target="diagnosis">
                             <i class="fa fa-stethoscope w-5 text-center"></i>
-                            <span>智能诊断</span>
+                            <span>AI 智能诊断</span>
                         </div>
                         <div class="nav-item" data-target="learning">
                             <i class="fa fa-book w-5 text-center"></i>
-                            <span>个性学习</span>
+                            <span>AI 个性学习</span>
                         </div>
+
+                        <p class="px-3 pt-3 pb-1 text-[11px] tracking-wide text-neutral uppercase">练习与考试</p>
                         <div class="nav-item" data-target="practice">
                             <i class="fa fa-pencil w-5 text-center"></i>
                             <span>练题</span>
@@ -411,10 +434,6 @@
                         <div class="nav-item" data-target="wrongbook">
                             <i class="fa fa-exclamation-circle w-5 text-center"></i>
                             <span>错题本</span>
-                        </div>
-                        <div class="nav-item" data-target="plan">
-                            <i class="fa fa-bullseye w-5 text-center"></i>
-                            <span>今日计划</span>
                         </div>
                         <div class="nav-item" data-target="question-bank">
                             <i class="fa fa-th-list w-5 text-center"></i>
@@ -424,17 +443,15 @@
                             <i class="fa fa-pencil-square-o w-5 text-center"></i>
                             <span>模拟考试</span>
                         </div>
-                        <div class="nav-item" data-target="wrong-questions">
-                            <i class="fa fa-exclamation-triangle w-5 text-center"></i>
-                            <span>错题管理</span>
-                        </div>
                         <div class="nav-item" data-target="crash-course">
                             <i class="fa fa-bolt w-5 text-center"></i>
                             <span>考前冲刺</span>
                         </div>
+
+                        <p class="px-3 pt-3 pb-1 text-[11px] tracking-wide text-neutral uppercase">复盘与帮助</p>
                         <div class="nav-item" data-target="report">
                             <i class="fa fa-bar-chart w-5 text-center"></i>
-                            <span>学习报告</span>
+                            <span>AI 学习报告</span>
                         </div>
                         <div class="nav-item" data-target="help">
                             <i class="fa fa-question-circle w-5 text-center"></i>
@@ -469,6 +486,10 @@
                     <div>
                         <h2 class="text-xl font-bold" id="page-title">首页</h2>
                         <p class="text-xs text-neutral mt-1" id="context-brief">城市：深圳 · 车型：C1 · 科目：科目一</p>
+                        <p id="ai-status-pill" class="inline-flex items-center gap-1 text-[11px] mt-1.5 px-2 py-1 rounded-full bg-primary/10 text-primary">
+                            <i class="fa fa-microchip"></i>
+                            <span>AI 模型：个性化推荐已启用</span>
+                        </p>
                     </div>
                     <div class="hidden md:flex items-center gap-2">
                         <select id="top-student-select" class="border border-gray-300 rounded-md px-3 py-2 text-sm min-w-[220px]">
@@ -508,6 +529,7 @@
                             <div>
                                 <h3 class="text-2xl font-bold">欢迎回来，张三！</h3>
                                 <p class="text-neutral mt-1">今天是 <span id="current-date">2026年3月4日</span>，距离考试还有 <span class="text-primary font-medium">7天</span></p>
+                                <p class="text-xs text-primary mt-1">AI 教练已同步你的最新训练画像与优先任务。</p>
                                 <div class="mt-4">
                                     <p class="font-medium">当前学习进度</p>
                                     <div class="progress-bar mt-2">
@@ -579,45 +601,9 @@
                     
                     <!-- 学习推荐 -->
                     <div class="card mb-6">
-                        <h3 class="text-lg font-bold mb-4">今日学习推荐</h3>
-                        <div class="space-y-4">
-                            <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-primary transition-all">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                                        <i class="fa fa-book text-primary"></i>
-                                    </div>
-                                    <div>
-                                        <h4 class="font-medium">安全文明驾驶（薄弱）</h4>
-                                        <p class="text-sm text-neutral">预计用时 20分钟</p>
-                                    </div>
-                                </div>
-                                <button class="btn btn-primary" data-go-practice="1">开始练习</button>
-                            </div>
-                            <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-primary transition-all">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                                        <i class="fa fa-book text-primary"></i>
-                                    </div>
-                                    <div>
-                                        <h4 class="font-medium">紧急情况处理（薄弱）</h4>
-                                        <p class="text-sm text-neutral">预计用时 15分钟</p>
-                                    </div>
-                                </div>
-                                <button class="btn btn-primary" data-go-practice="1">开始练习</button>
-                            </div>
-                            <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-primary transition-all">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                                        <i class="fa fa-book text-primary"></i>
-                                    </div>
-                                    <div>
-                                        <h4 class="font-medium">交通标志识别（较好）</h4>
-                                        <p class="text-sm text-neutral">预计用时 10分钟</p>
-                                    </div>
-                                </div>
-                                <button class="btn btn-primary" data-go-practice="1">开始练习</button>
-                            </div>
-                        </div>
+                        <h3 class="text-lg font-bold mb-1">AI 今日学习任务</h3>
+                        <p class="text-sm text-neutral mb-4">由 AI 根据薄弱点、到期复习与近期表现动态生成。</p>
+                        <div id="today-missions-box"></div>
                     </div>
                     
                     <!-- 学习数据 -->
@@ -637,11 +623,11 @@
                     </div>
                 </div>
                 
-                <!-- 智能诊断（改造：50题诊断 + 报告） -->
+                <!-- AI智能诊断（改造：50题诊断 + 报告） -->
                 <div id="diagnosis" class="page-content hidden">
                     <div class="card mb-6">
-                        <h3 class="text-xl font-bold mb-2">智能诊断</h3>
-                        <p class="text-neutral">完成100道诊断题（模拟真实考试，45分钟倒计时），系统将输出薄弱知识点TOP、预测得分与提分建议，并可一键进入智能加速练习。</p>
+                        <h3 class="text-xl font-bold mb-2">AI 智能诊断</h3>
+                        <p class="text-neutral">完成100道诊断题（模拟真实考试，45分钟倒计时），AI 将输出薄弱知识点TOP、预测得分与提分建议，并可一键进入 AI 加速练习。</p>
                     </div>
 
                     <div class="card mb-6" id="diagnosis-box"></div>
@@ -654,7 +640,7 @@
                 <div id="learning" class="page-content hidden">
                     <div class="card mb-6">
                         <div class="flex justify-between items-center mb-6">
-                            <h3 class="text-xl font-bold">个性学习中心</h3>
+                            <h3 class="text-xl font-bold">AI 个性学习中心</h3>
                             <div class="bg-primary/10 text-primary px-3 py-1 rounded-full text-sm font-medium">
                                 今日目标: 50/100题
                             </div>
@@ -770,12 +756,22 @@
                                     <button class="btn btn-secondary" data-practice-mode="smart">智能</button>
                                     <button class="btn btn-secondary" data-practice-mode="review">复习</button>
                                     <button class="btn btn-secondary" data-practice-mode="wrong">错题</button>
+                                    <div class="hidden md:flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 text-sm text-neutral" id="order-scope-control">
+                                        <span>顺序</span>
+                                        <select id="order-scope" class="border border-gray-200 rounded px-2 py-1">
+                                            <option value="unanswered" selected>未做优先</option>
+                                            <option value="all">全量顺序</option>
+                                        </select>
+                                    </div>
                                     <div class="hidden md:flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 text-sm text-neutral" id="smart-lock-control">
                                         <span>锁定</span>
                                         <select id="smart-lock-n" class="border border-gray-200 rounded px-2 py-1">
-                                            <option value="3">3题</option>
-                                            <option value="5" selected>5题</option>
-                                            <option value="8">8题</option>
+                                            <option value="5">5题</option>
+                                            <option value="10" selected>10题</option>
+                                            <option value="20">20题</option>
+                                            <option value="30">30题</option>
+                                            <option value="40">40题</option>
+                                            <option value="50">50题</option>
                                         </select>
                                     </div>
                                     <button class="btn btn-secondary hidden" id="btn-knowledge-summary">专项小结</button>
@@ -845,7 +841,7 @@
                         <div id="smart-summary-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
                             <div class="bg-white rounded-lg p-6 w-full max-w-xl">
                                 <div class="flex items-center justify-between mb-4">
-                                    <h3 class="text-lg font-bold">智能加速 · 本组小结</h3>
+                                    <h3 class="text-lg font-bold">AI 训练小结</h3>
                                     <button id="close-smart-summary" class="btn btn-secondary">关闭</button>
                                 </div>
                                 <div id="smart-summary-content" class="space-y-3"></div>
@@ -867,6 +863,7 @@
                             </div>
                             <div class="flex gap-2">
                                 <button class="btn btn-primary" id="btn-wrong-start"><i class="fa fa-play-circle mr-2"></i>错题重练</button>
+                                <button class="btn btn-outline" id="btn-wrong-clear"><i class="fa fa-trash mr-2"></i>清空错题本</button>
                             </div>
                         </div>
                         <p class="text-sm text-neutral mt-4" id="wrong-tip"></p>
@@ -899,44 +896,60 @@
                             <div class="text-sm text-neutral" id="bank-meta"></div>
                         </div>
 
-                        <div class="mt-4 grid grid-cols-1 md:grid-cols-6 gap-3" id="bank-filters">
-                            <div class="md:col-span-2 relative">
-                                <input id="bank-search" type="text" placeholder="搜索题干或ID…" class="w-full border border-gray-300 rounded-md px-4 py-2 pl-10" />
-                                <i class="fa fa-search absolute left-3 top-3 text-neutral"></i>
+                        <div class="mt-5 rounded-xl border border-gray-200 bg-gradient-to-br from-white to-gray-50 p-4 shadow-sm" id="bank-filters">
+                            <div class="flex items-center gap-2 text-xs text-neutral mb-3">
+                                <i class="fa fa-sliders"></i>
+                                <span>AI 筛选器</span>
                             </div>
-                            <select id="bank-status" class="border border-gray-300 rounded-md px-3 py-2">
-                                <option value="all">全部状态</option>
-                                <option value="unanswered">未做</option>
-                                <option value="correct">已掌握</option>
-                                <option value="wrong">未掌握</option>
-                            </select>
-                            <select id="bank-type" class="border border-gray-300 rounded-md px-3 py-2">
-                                <option value="all">全部题型</option>
-                                <option value="single">单选</option>
-                                <option value="tf">判断</option>
-                            </select>
-                            <select id="bank-knowledge" class="border border-gray-300 rounded-md px-3 py-2">
-                                <option value="all">全部知识点</option>
-                            </select>
-                            <div class="flex flex-wrap items-center gap-2">
-                                <label class="flex items-center gap-2 text-sm text-neutral">
+                            <div class="relative max-w-3xl">
+                                <input id="bank-search" type="text" placeholder="搜索题干或ID…" class="w-full border border-gray-300 bg-white rounded-xl px-4 py-3 pl-10 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" />
+                                <i class="fa fa-search absolute left-3 top-4 text-neutral"></i>
+                            </div>
+                            <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                                <label class="text-xs text-neutral bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm">
+                                    <span class="inline-flex items-center gap-1"><i class="fa fa-circle-o"></i>状态</span>
+                                    <select id="bank-status" class="select-pretty mt-1.5">
+                                        <option value="all">全部状态</option>
+                                        <option value="unanswered">未做</option>
+                                        <option value="correct">已掌握</option>
+                                        <option value="wrong">未掌握</option>
+                                    </select>
+                                </label>
+                                <label class="text-xs text-neutral bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm">
+                                    <span class="inline-flex items-center gap-1"><i class="fa fa-list"></i>题型</span>
+                                    <select id="bank-type" class="select-pretty mt-1.5">
+                                        <option value="all">全部题型</option>
+                                        <option value="single">单选</option>
+                                        <option value="tf">判断</option>
+                                        <option value="multi">多选</option>
+                                    </select>
+                                </label>
+                                <label class="text-xs text-neutral bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm">
+                                    <span class="inline-flex items-center gap-1"><i class="fa fa-map-signs"></i>知识点</span>
+                                    <select id="bank-knowledge" class="select-pretty mt-1.5">
+                                        <option value="all">全部知识点</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="mt-3 flex flex-wrap items-center gap-2">
+                                <label class="flex items-center gap-2 text-sm text-neutral border border-gray-200 rounded-lg px-3 py-2 bg-white shadow-sm">
                                     <input id="bank-fav" type="checkbox" />
                                     <span>仅收藏</span>
                                 </label>
-                                <select id="bank-sort" class="border border-gray-300 rounded-md px-3 py-2">
+                                <select id="bank-sort" class="select-pretty !w-auto min-w-[130px]">
                                     <option value="priority">默认排序</option>
                                     <option value="id">按ID</option>
                                 </select>
-                                <select id="bank-view" class="border border-gray-300 rounded-md px-3 py-2">
-                                    <option value="list" selected>列表</option>
-                                    <option value="knowledge">按知识点</option>
+                                <select id="bank-view" class="select-pretty !w-auto min-w-[150px]">
+                                    <option value="list" selected>列表视图</option>
+                                    <option value="knowledge">知识点视图</option>
                                 </select>
                             </div>
                         </div>
 
                         <div class="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                             <div class="flex flex-wrap gap-2">
-                                <button class="btn btn-primary" id="bank-start-filter"><i class="fa fa-play-circle mr-2"></i>练习当前筛选（100题）</button>
+                                <button class="btn btn-primary" id="bank-start-filter"><i class="fa fa-play-circle mr-2"></i>练习当前筛选</button>
                                 <button class="btn btn-outline" id="bank-add-fav">将筛选结果加入收藏</button>
                             </div>
                             <div class="flex items-center gap-2">
@@ -1006,114 +1019,11 @@
                     </div>
                 </div>
                 
-                <!-- 错题管理 -->
-                <div id="wrong-questions" class="page-content hidden">
-                    <div class="card mb-6">
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="text-xl font-bold">错题管理</h3>
-                            <div class="flex gap-3">
-                                <button class="btn btn-outline" data-wq-action="repractice">
-                                    <i class="fa fa-refresh mr-2"></i>重新练习
-                                </button>
-                                <button class="btn btn-outline" data-wq-action="clear">
-                                    <i class="fa fa-trash mr-2"></i>清空错题
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div class="mb-6">
-                            <div class="flex justify-between mb-4">
-                                <div class="flex gap-2">
-                                    <button class="btn btn-outline active">全部</button>
-                                    <button class="btn btn-outline">交通法规</button>
-                                    <button class="btn btn-outline">安全文明</button>
-                                    <button class="btn btn-outline">标志标线</button>
-                                    <button class="btn btn-outline">紧急情况</button>
-                                </div>
-                                <div class="relative">
-                                    <input type="text" placeholder="搜索错题" class="border border-gray-300 rounded-md px-4 py-2 pl-10">
-                                    <i class="fa fa-search absolute left-3 top-3 text-neutral"></i>
-                                </div>
-                            </div>
-                            
-                            <div class="space-y-4">
-                                <div class="border border-gray-200 rounded-lg p-4">
-                                    <div class="flex justify-between mb-3">
-                                        <span class="font-medium">交通法规</span>
-                                        <span class="text-sm text-neutral">2026-03-03</span>
-                                    </div>
-                                    <p class="mb-3">驾驶机动车在道路上违反道路交通安全法的行为，属于什么行为？</p>
-                                    <div class="space-y-2 mb-3">
-                                        <div class="question-option incorrect">
-                                            <input type="radio" name="q1" disabled checked>
-                                            <span>A. 违章行为</span>
-                                        </div>
-                                        <div class="question-option correct">
-                                            <input type="radio" name="q1" disabled>
-                                            <span>B. 违法行为</span>
-                                        </div>
-                                        <div class="question-option">
-                                            <input type="radio" name="q1" disabled>
-                                            <span>C. 过失行为</span>
-                                        </div>
-                                        <div class="question-option">
-                                            <input type="radio" name="q1" disabled>
-                                            <span>D. 违规行为</span>
-                                        </div>
-                                    </div>
-                                    <div class="bg-gray-50 p-3 rounded-md">
-                                        <p class="text-sm"><strong>解析：</strong>驾驶机动车在道路上违反道路交通安全法的行为属于违法行为。</p>
-                                    </div>
-                                </div>
-                                
-                                <div class="border border-gray-200 rounded-lg p-4">
-                                    <div class="flex justify-between mb-3">
-                                        <span class="font-medium">安全文明</span>
-                                        <span class="text-sm text-neutral">2026-03-02</span>
-                                    </div>
-                                    <p class="mb-3">夜间驾驶机动车在照明条件良好的路段跟车行驶时，应如何使用灯光？</p>
-                                    <div class="space-y-2 mb-3">
-                                        <div class="question-option incorrect">
-                                            <input type="radio" name="q2" disabled checked>
-                                            <span>A. 使用远光灯</span>
-                                        </div>
-                                        <div class="question-option correct">
-                                            <input type="radio" name="q2" disabled>
-                                            <span>B. 使用近光灯</span>
-                                        </div>
-                                        <div class="question-option">
-                                            <input type="radio" name="q2" disabled>
-                                            <span>C. 使用危险报警闪光灯</span>
-                                        </div>
-                                        <div class="question-option">
-                                            <input type="radio" name="q2" disabled>
-                                            <span>D. 交替使用远近光灯</span>
-                                        </div>
-                                    </div>
-                                    <div class="bg-gray-50 p-3 rounded-md">
-                                        <p class="text-sm"><strong>解析：</strong>夜间在照明条件良好的路段跟车行驶时，应使用近光灯，避免影响前车驾驶员的视线。</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="flex justify-center">
-                            <div class="flex gap-2">
-                                <button class="btn btn-outline">上一页</button>
-                                <button class="btn btn-primary">1</button>
-                                <button class="btn btn-outline">2</button>
-                                <button class="btn btn-outline">3</button>
-                                <button class="btn btn-outline">下一页</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
                 <!-- 考前冲刺 -->
                 <div id="crash-course" class="page-content hidden">
                     <div class="card mb-6">
                         <h3 class="text-xl font-bold mb-4">考前冲刺</h3>
-                        <p class="text-neutral mb-6">根据考试倒计时、错题与薄弱知识点，自动生成冲刺任务。</p>
+                        <p class="text-neutral mb-6">AI 根据考试倒计时、错题与薄弱知识点，自动生成冲刺任务。</p>
                         
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                             <div class="border border-gray-200 rounded-lg p-6 hover:border-primary transition-all">
@@ -1143,8 +1053,8 @@
                     <div class="card mb-6">
                         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                             <div>
-                                <h3 class="text-xl font-bold mb-2">使用说明（非常详细）</h3>
-                                <p class="text-neutral">本页面将带你从“第一次进入”到“诊断—加速—专项—错题消除—计划复盘”的完整路径，帮助你用最少时间提分。</p>
+                                <h3 class="text-xl font-bold mb-2">使用说明</h3>
+                                <p class="text-neutral">本页面将带你从“第一次进入”到“AI 智能诊断—AI 加速练习—专项—错题消除—计划复盘”的完整路径，帮助你用更少时间提分。</p>
                             </div>
                             <div class="w-full md:w-80">
                                 <div class="relative">
@@ -1156,9 +1066,9 @@
                         </div>
 
                         <div class="flex flex-wrap gap-2 mt-4" id="help-actions">
-                            <button class="btn btn-primary" data-help-action="start-diagnosis"><i class="fa fa-play-circle mr-2"></i>开始100题诊断</button>
+                            <button class="btn btn-primary" data-help-action="start-diagnosis"><i class="fa fa-play-circle mr-2"></i>启动 AI 100题诊断（推荐）</button>
                             <button class="btn btn-outline" data-help-action="continue-diagnosis">继续诊断</button>
-                            <button class="btn btn-outline" data-help-action="go-smart">进入智能加速练习</button>
+                            <button class="btn btn-outline" data-help-action="go-smart">进入 AI 加速练习</button>
                             <button class="btn btn-outline" data-help-action="go-wrong">打开错题本</button>
                             <button class="btn btn-outline" data-help-action="go-plan">打开今日计划</button>
                             <button class="btn btn-outline" data-help-action="go-bank">打开题库</button>
@@ -1174,31 +1084,34 @@
                     <div class="card mb-6" data-help-section="1" id="help-s1">
                         <h4 class="text-lg font-bold mb-3">1. 推荐学习主流程（新手必看）</h4>
                         <ol class="list-decimal pl-6 space-y-2 text-neutral">
-                            <li><strong>设置考试日期：</strong>去「首页」点击“预约考试”选择日期（影响今日目标与学习节奏）。</li>
-                            <li><strong>开始100题智能诊断：</strong>进入「智能诊断」点击“开始诊断”。这相当于一次模拟考试（45分钟倒计时）。</li>
-                            <li><strong>查看诊断报告：</strong>完成后会生成“预测得分（加权）/薄弱知识点TOP/提分清单ROI”。</li>
-                            <li><strong>一键串练ROI专项：</strong>在报告里点击“一键串练ROI专项（5×20题）”，系统会按提分潜力从高到低带你做专项。</li>
-                            <li><strong>回到智能加速：</strong>每个专项结束会弹出“专项小结”，点“继续（下一步）”进入下一专项或回到智能加速练习。</li>
-                            <li><strong>错题消除：</strong>错题会进入错题本，同一道错题连续答对2次会自动移出。</li>
+                            <li><strong>登录并选择学员：</strong>先完成“驾校账号登录”，再通过扫码/账号密码/调试入口绑定学员。</li>
+                            <li><strong>设置训练上下文：</strong>在顶部设置城市、车型、科目，系统据此显示个性化学习环境。</li>
+                            <li><strong>先做100题智能诊断：</strong>进入「AI 智能诊断」完成一次45分钟诊断，建立初始画像。</li>
+                            <li><strong>看报告并执行建议：</strong>关注预测得分、薄弱知识点、错因分布、ROI提分清单。</li>
+                            <li><strong>日常走“AI 今日学习任务”：</strong>弱项专项20题 → 到期复习 → 快速模考（首页自动打勾）。</li>
+                            <li><strong>进入 AI 加速练习：</strong>系统按高频、掌握度、遗忘风险、错因策略动态出题。</li>
                         </ol>
                     </div>
 
                     <div class="card mb-6" data-help-section="2" id="help-s2">
-                        <h4 class="text-lg font-bold mb-3">2. 首页怎么用</h4>
+                        <h4 class="text-lg font-bold mb-3">2. 登录与首页怎么用</h4>
                         <div class="space-y-3 text-neutral">
+                            <p><strong>登录流程（新）：</strong>系统支持“驾校登录 + 学员登录”。每个学员的数据独立保存，切换学员不会串数据。</p>
+                            <p><strong>训练上下文（新）：</strong>可设置城市/车型/科目，显示在顶部并参与学习引导文案。</p>
                             <p><strong>全局主按钮：</strong>首页右侧有一个主按钮，会根据你的状态自动变成：</p>
                             <ul class="list-disc pl-6 space-y-1">
-                                <li>未诊断：<strong>开始100题诊断（推荐）</strong></li>
+                                <li>未诊断：<strong>启动 AI 100题诊断（推荐）</strong></li>
                                 <li>诊断进行中：<strong>继续诊断（x/100）</strong></li>
-                                <li>诊断已完成：<strong>开始智能加速练习</strong></li>
+                                <li>诊断已完成：<strong>开始 AI 加速练习</strong></li>
                             </ul>
-                            <p><strong>今日目标卡片：</strong>展示今日完成/目标、今日正确率、总进度。目标会根据考试日期和剩余题量动态计算。</p>
+                            <p><strong>AI 今日学习任务（新）：</strong>首页会显示当日任务进度与下一步按钮，点击可直接进入对应模式。</p>
+                            <p><strong>今日目标卡片：</strong>展示今日完成/目标、今日正确率、总进度。目标会根据考试日期、剩余题量与复习负载动态计算。</p>
                             <p><strong>预约考试：</strong>点击“预约考试”选择日期，会写入本地并影响计划与诊断页显示。</p>
                         </div>
                     </div>
 
                     <div class="card mb-6" data-help-section="3" id="help-s3">
-                        <h4 class="text-lg font-bold mb-3">3. 智能诊断（100题+45分钟）</h4>
+                        <h4 class="text-lg font-bold mb-3">3. AI 智能诊断（100题+45分钟）</h4>
                         <div class="space-y-3 text-neutral">
                             <p><strong>开始/继续/重置：</strong>诊断支持中途退出，下次继续；也支持重新开始（清空本次诊断）。</p>
                             <p><strong>倒计时：</strong>诊断中显示45分钟倒计时。时间到会自动结束并生成报告。</p>
@@ -1207,7 +1120,7 @@
                                 <li>开启：答题后显示解析（更适合边做边学）。</li>
                                 <li>关闭：不显示解析，直接下一题（更像真实考试）。</li>
                             </ul>
-                            <p><strong>题量说明：</strong>当前为Mock题库，题目不足100时会循环补齐用于流程演示。</p>
+                            <p><strong>组卷逻辑：</strong>先覆盖主要知识点，再优先抽取高价值题（高频/薄弱/待复习）。</p>
                         </div>
                     </div>
 
@@ -1215,31 +1128,31 @@
                         <h4 class="text-lg font-bold mb-3">4. 诊断报告怎么读</h4>
                         <div class="space-y-3 text-neutral">
                             <p><strong>预测得分（加权）：</strong>按知识点掌握度并结合题库考频权重计算，更能反映“高频短板”对分数的影响。</p>
-                            <p><strong>错因分布（新）：</strong>基于你在练题中选择的错因（记忆/理解/粗心/陷阱）做汇总，帮助你知道“错在方法还是错在知识点”。</p>
-                            <p><strong>薄弱知识点TOP10：</strong>掌握度最低的10个知识点。</p>
-                            <p><strong>提分清单TOP5（ROI）：</strong>综合“薄弱程度×考频权重”，优先练这5个最划算。</p>
-                            <p><strong>一键串练ROI专项：</strong>会按ROI从高到低，依次做5个专项，每个专项20题（专项结束有小结），并在小结里可自动进入下一专项。</p>
+                            <p><strong>错因分布：</strong>基于你标记的错因（记忆/理解/粗心/陷阱）汇总，判断是知识短板还是方法问题。</p>
+                            <p><strong>薄弱知识点TOP：</strong>显示掌握度最低的知识点，支持一键进入专项练习。</p>
+                            <p><strong>ROI提分清单：</strong>综合“薄弱程度 × 频率权重”，优先练最可能提分的模块。</p>
+                            <p><strong>行动建议：</strong>可直接跳转到专项、AI 加速练习、错题冲刺或模拟考试。</p>
                         </div>
                     </div>
 
                     <div class="card mb-6" data-help-section="5" id="help-s5">
-                        <h4 class="text-lg font-bold mb-3">5. 练题页怎么用（顺序/智能/错题/专项）</h4>
+                        <h4 class="text-lg font-bold mb-3">5. 练题页怎么用（顺序/智能/复习/错题/专项）</h4>
                         <div class="space-y-3 text-neutral">
-                            <p><strong>模式切换：</strong>练题页右上角可切换：</p>
-                            <p><strong>复习模式（新）：</strong>会优先练习“到期复习题”（基于遗忘曲线：1/3/7/14天）。做完每题系统会自动安排下一次复习时间。</p>
+                            <p><strong>模式切换：</strong>右上角按钮会直接切换题池，不只是改标签。</p>
                             <ul class="list-disc pl-6 space-y-1">
-                                <li><strong>顺序：</strong>按题库顺序练习。</li>
-                                <li><strong>智能：</strong>系统优先挑“高频+低掌握度+久未练”的题，答完会自动跳到更值得练的题。</li>
+                                <li><strong>顺序：</strong>支持“未做优先 / 全量顺序”两个子模式。</li>
+                                <li><strong>智能：</strong>按高频、掌握度、遗忘风险、错因策略动态推荐。</li>
+                                <li><strong>复习：</strong>只练到期复习题（1/3/7/14天间隔）。</li>
                                 <li><strong>错题：</strong>只练错题本中的题。</li>
                                 <li><strong>专项（自动触发）：</strong>从诊断报告点击“去专项练习/一键串练”进入专项队列。</li>
                             </ul>
-                            <p><strong>智能锁定（新）：</strong>智能模式支持“锁定同一知识点连续做 N 题”（3/5/8题可选），避免题目跳得太散，更像教练带练。</p>
-                            <p><strong>智能组小结（新）：</strong>智能模式每完成一组（例如5题）会弹出“小结”，展示本组正确率/当前掌握度/用时，并一键继续下一组。</p>
-                            <p><strong>粗心关键词提示（新）：</strong>当系统检测到“粗心”错因占比较高时，会在题干中高亮“不/必须/不得/严禁”等关键词，帮助你减少低级失误。</p>
+                            <p><strong>智能锁定：</strong>可设置同知识点连续训练题数（5/10/20/30/40/50，默认10）。</p>
+                            <p><strong>AI 训练小结：</strong>每组结束展示正确率、掌握度和用时，并可继续下一组。</p>
+                            <p><strong>粗心关键词提示：</strong>当“粗心”占比高时，题干会高亮“不/必须/不得/严禁”等关键词。</p>
                             <p><strong>收藏：</strong>点击“收藏”将题目加入收藏列表（用于复习）。</p>
                             <p><strong>笔记：</strong>每题可写笔记（口诀/易错点），保存到本地浏览器。</p>
                             <p><strong>专项错题回插：</strong>在专项模式中，做错的题会在1-2题后再次出现一次，用于短间隔强化。</p>
-                            <p><strong>专项小结：</strong>专项最后一题答完后会出现“专项小结”按钮，展示完成题数/正确率/当前掌握度，并可继续下一步（若在ROI串练中会进入下一专项，否则回到智能加速）。</p>
+                            <p><strong>专项小结：</strong>专项最后一题答完后会出现“专项小结”按钮，展示完成题数/正确率/掌握度，并可继续下一步。</p>
                         </div>
                     </div>
 
@@ -1250,21 +1163,23 @@
                             <p><strong>自动收录：</strong>练题答错会自动加入错题本。</p>
                             <p><strong>消除规则：</strong>同一道错题连续答对2次会自动移出（答错会重置计数）。</p>
                             <p><strong>错题重练：</strong>点击“错题重练”进入错题队列。</p>
+                            <p><strong>清空错题本：</strong>支持一键清空当前学员错题本（用于重置冲刺前状态）。</p>
                             <p><strong>错因选择（新）：</strong>答错后会出现“错因选择”（记忆/理解/粗心/陷阱）。建议选择后再继续，系统会在诊断报告里汇总“错因分布”，并给出更贴合你的建议。</p>
                         </div>
                     </div>
 
                     <div class="card mb-6" data-help-section="7" id="help-s7">
-                        <h4 class="text-lg font-bold mb-3">7. 今日计划与题库页</h4>
+                        <h4 class="text-lg font-bold mb-3">7. 今日计划、冲刺与题库页</h4>
                         <div class="space-y-3 text-neutral">
                             <p><strong>今日计划：</strong>根据考试日期、剩余题量、近3天正确率、到期复习量动态计算今日目标，并按倒计时分阶段（基础/平衡/冲刺/临考）。</p>
                             <p><strong>设置面板（已可用）：</strong>点击顶部齿轮可调整“智能锁定题数、每日新题/复习/总题上限、阶段阈值”。保存后会立即更新首页“今日目标”和「今日计划」页。</p>
                             <p><strong>默认参数：</strong>新题上限160、复习上限120、总题上限200；阶段阈值为基础&gt;14天、平衡7-14天、冲刺4-7天、临考≤3天。</p>
                             <p><strong>调参建议：</strong>时间少可先降“新题上限”并提高复习占比；基础薄弱可提高“基础期阈值”；若出现“无法按时完成”风险提示，可延后考试日期或提高每日练题时长。</p>
-                            <p><strong>题库（已优化）：</strong>支持搜索（题干/ID）、按状态/题型/知识点/收藏筛选、分页浏览，并支持“练习当前筛选（100题）”和“将筛选结果加入收藏”。</p>
-                            <p><strong>题库视图切换（新）：</strong>支持“列表”与“按知识点”两种视图。切换后会自动回到题库区域顶部，避免你滚动在页面下方导致“看起来像没变化”。在“按知识点”视图里可查看每个知识点的掌握度、题量、未掌握数，并一键进入该知识点专项20题。</p>
-                            <p><strong>学习模式选择（已接入可点击）：</strong>在「个性学习」页，顺序学习/随机练习会直接进入练题页；错题练习会进入错题队列；专项练习按钮会进入对应知识点专项20题。</p>
-                            <p><strong>顶部栏按钮（已接入可点击）：</strong>问号会跳转到使用说明；铃铛目前为占位提示；设置已接入可配置面板。</p>
+                            <p><strong>考前冲刺（更新）：</strong>冲刺入口统一按模拟考试流程。薄弱知识点专项模拟会按该知识点实际题量组卷（上限100题），不会强行补满。</p>
+                            <p><strong>题库（已优化）：</strong>支持搜索（题干/ID）、按状态/题型/知识点/收藏筛选、分页浏览，并支持“AI 生成练习（N题）”和“将筛选结果加入收藏”。</p>
+                            <p><strong>题库视图切换：</strong>支持“列表”与“按知识点”两种视图，可查看掌握度、题量、未掌握数并一键专项。</p>
+                            <p><strong>学习模式选择：</strong>在「AI 个性学习」页支持「顺序学习 / 随机练习 / 专项练习 / 错题练习」。</p>
+                            <p><strong>顶部栏按钮：</strong>问号跳转使用说明；铃铛为占位提示；齿轮可进入学习设置。</p>
                         </div>
                     </div>
 
@@ -1279,9 +1194,10 @@
                     <div class="card" data-help-section="9" id="help-s9">
                         <h4 class="text-lg font-bold mb-3">9. 常见问题（FAQ）</h4>
                         <div class="space-y-2 text-neutral">
-                            <p><strong>Q：为什么题目会重复？</strong> A：当前是Mock题库，用于演示流程；真实题库接入后将不重复。</p>
+                            <p><strong>Q：为什么智能模式会跳题？</strong> A：智能模式会优先推送“最值得练”的题（高频/薄弱/遗忘风险/错因策略），不是按顺序。</p>
+                            <p><strong>Q：冲刺页为什么有时不是100题？</strong> A：薄弱知识点专项模拟按该知识点实际题量组卷，上限100题，不强行补题。</p>
                             <p><strong>Q：我想清空学习记录怎么办？</strong> A：见 README 里的“如何清空本地数据”，或在浏览器设置里清空站点数据。</p>
-                            <p><strong>Q：智能模式为什么会跳题？</strong> A：智能模式会优先推送“最值得练”的题（高频短板），所以不是按顺序。</p>
+                            <p><strong>Q：切换学员后数据为什么不同？</strong> A：每个学员数据独立快照存储，这是预期行为。</p>
                         </div>
                     </div>
                 </div>
@@ -1289,7 +1205,7 @@
                 <!-- 学习报告 -->
                 <div id="report" class="page-content hidden">
                     <div class="card mb-6">
-                        <h3 class="text-xl font-bold mb-4">学习报告</h3>
+                        <h3 class="text-xl font-bold mb-4">AI 学习报告</h3>
                         <p class="text-neutral mb-6">基于真实做题、模考、错因与复习数据生成的阶段报告。</p>
                         <div id="report-box"></div>
                         <div class="hidden"><canvas id="trendChart"></canvas></div>
@@ -1312,9 +1228,12 @@
                         <label class="text-sm text-neutral">
                             智能锁定题数
                             <select id="settings-smart-lock-n" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2">
-                                <option value="3">3题</option>
                                 <option value="5">5题</option>
-                                <option value="8">8题</option>
+                                <option value="10">10题</option>
+                                <option value="20">20题</option>
+                                <option value="30">30题</option>
+                                <option value="40">40题</option>
+                                <option value="50">50题</option>
                             </select>
                         </label>
                     </div>
@@ -1672,12 +1591,15 @@
                 // 更新页面标题
                 const titles = {
                     'home': '首页',
-                    'diagnosis': '智能诊断',
-                    'learning': '个性学习',
+                    'diagnosis': 'AI 智能诊断',
+                    'learning': 'AI 个性学习',
+                    'practice': '练题',
+                    'wrongbook': '错题本',
+                    'plan': '今日计划',
+                    'question-bank': '题库',
                     'exam': '模拟考试',
-                    'wrong-questions': '错题管理',
                     'crash-course': '考前冲刺',
-                    'report': '学习报告'
+                    'report': 'AI 学习报告'
                 };
                 document.getElementById('page-title').textContent = titles[target];
             });

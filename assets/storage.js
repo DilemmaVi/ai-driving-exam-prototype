@@ -14,12 +14,14 @@ export const LS_KEYS = {
   SETTINGS: 'qa.settings', // { diagnosisShowAnalysis:boolean, smartLockN:number }
   WRONG_REASON: 'qa.wrongReason', // { [questionId]: 'memory'|'understand'|'careless'|'trap' }
   REVIEW: 'qa.review', // { [questionId]: nextTs:number, intervalDays:number }
-  EXAM_HISTORY: 'qa.examHistory' // [{ id, startedAt, finishedAt, durationSec, examType, total, correct, score, wrongIds, byKnowledge, wrongReasonStat, queue, answers }]
+  EXAM_HISTORY: 'qa.examHistory', // [{ id, startedAt, finishedAt, durationSec, examType, total, correct, score, wrongIds, byKnowledge, wrongReasonStat, queue, answers }]
+  LEARNER_PROFILE: 'qa.learnerProfile', // { total, correct, streakCorrect, streakWrong, reasonStat, byKnowledge, byHour }
+  LEARNING_EVENTS: 'qa.learningEvents' // [{ ts, event, payload }]
 };
 
 const SETTINGS_DEFAULT = {
   diagnosisShowAnalysis: true,
-  smartLockN: 5,
+  smartLockN: 10,
   plan: {
     maxNewPerDay: 160,
     maxReviewPerDay: 120,
@@ -330,6 +332,84 @@ export function saveExamResult(record) {
   else list.unshift(record);
   setExamHistory(list.slice(0, 50));
   return list;
+}
+
+export function getLearnerProfile() {
+  const raw = safeJsonParse(localStorage.getItem(LS_KEYS.LEARNER_PROFILE), {});
+  const byHour = (raw.byHour && typeof raw.byHour === 'object') ? raw.byHour : {};
+  const byKnowledge = (raw.byKnowledge && typeof raw.byKnowledge === 'object') ? raw.byKnowledge : {};
+  const reasonStat = (raw.reasonStat && typeof raw.reasonStat === 'object')
+    ? raw.reasonStat
+    : { memory: 0, understand: 0, careless: 0, trap: 0 };
+  return {
+    version: 1,
+    total: Number(raw.total || 0),
+    correct: Number(raw.correct || 0),
+    streakCorrect: Number(raw.streakCorrect || 0),
+    streakWrong: Number(raw.streakWrong || 0),
+    lastAnswerAt: Number(raw.lastAnswerAt || 0),
+    byHour,
+    byKnowledge,
+    reasonStat: {
+      memory: Number(reasonStat.memory || 0),
+      understand: Number(reasonStat.understand || 0),
+      careless: Number(reasonStat.careless || 0),
+      trap: Number(reasonStat.trap || 0)
+    }
+  };
+}
+
+export function setLearnerProfile(profile) {
+  localStorage.setItem(LS_KEYS.LEARNER_PROFILE, JSON.stringify(profile || {}));
+}
+
+export function updateLearnerProfileOnAnswer(meta = {}) {
+  const p = getLearnerProfile();
+  const ts = Number(meta.ts || Date.now());
+  const hour = new Date(ts).getHours();
+  const kid = String(meta.knowledgeId || 'law.basic');
+  const correct = !!meta.correct;
+
+  p.total += 1;
+  if (correct) p.correct += 1;
+  p.streakCorrect = correct ? (p.streakCorrect + 1) : 0;
+  p.streakWrong = correct ? 0 : (p.streakWrong + 1);
+  p.lastAnswerAt = ts;
+
+  p.byHour[hour] = Number(p.byHour[hour] || 0) + 1;
+
+  const ks = p.byKnowledge[kid] || { attempts: 0, correct: 0, lastTs: 0 };
+  ks.attempts = Number(ks.attempts || 0) + 1;
+  if (correct) ks.correct = Number(ks.correct || 0) + 1;
+  ks.lastTs = ts;
+  p.byKnowledge[kid] = ks;
+
+  setLearnerProfile(p);
+  return p;
+}
+
+export function updateLearnerProfileWrongReason(reason) {
+  const p = getLearnerProfile();
+  if (!Object.prototype.hasOwnProperty.call(p.reasonStat, reason)) return p;
+  p.reasonStat[reason] = Number(p.reasonStat[reason] || 0) + 1;
+  setLearnerProfile(p);
+  return p;
+}
+
+export function getLearningEvents() {
+  return safeJsonParse(localStorage.getItem(LS_KEYS.LEARNING_EVENTS), []);
+}
+
+export function trackLearningEvent(event, payload = {}) {
+  const list = getLearningEvents();
+  list.unshift({
+    ts: Date.now(),
+    event: String(event || 'unknown'),
+    payload: payload && typeof payload === 'object' ? payload : {}
+  });
+  const next = list.slice(0, 500);
+  localStorage.setItem(LS_KEYS.LEARNING_EVENTS, JSON.stringify(next));
+  return next;
 }
 
 export function clearAllData() {

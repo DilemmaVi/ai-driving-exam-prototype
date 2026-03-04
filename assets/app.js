@@ -24,7 +24,12 @@ import {
   scheduleReview,
   getReview,
   getExamHistory,
-  saveExamResult
+  saveExamResult,
+  getLearnerProfile,
+  updateLearnerProfileOnAnswer,
+  updateLearnerProfileWrongReason,
+  trackLearningEvent,
+  getLearningEvents
 } from './storage.js';
 
 let QUESTIONS = [];
@@ -68,6 +73,14 @@ function normalizeAnswer(type, rawAnswer) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function normalizeQuestionId(rawId) {
+  const id = String(rawId || '').trim();
+  if (!id) return '';
+  if (id.startsWith('qa-')) return id;
+  if (id.startsWith('sb-')) return `qa-${id.slice(3)}`;
+  return `qa-${id}`;
+}
+
 function getAnswerIndexes(answer) {
   if (Array.isArray(answer)) return answer.slice().map(Number).filter(Number.isFinite);
   const n = Number(answer);
@@ -99,7 +112,7 @@ function normalizeQuestion(raw) {
   const inputKid = q.knowledgeId || 'law.basic';
   const knowledgeId = inputKid === 'law.basic' ? inferredKid : inputKid;
   return {
-    id: String(q.id || ''),
+    id: normalizeQuestionId(q.id),
     type,
     knowledgeId,
     frequency: Number(q.frequency || 3),
@@ -184,6 +197,22 @@ function addDays(dateStr, delta) {
 
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
+}
+
+const SMART_LOCK_OPTIONS = [5, 10, 20, 30, 40, 50];
+function normalizeSmartLockN(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 10;
+  let best = SMART_LOCK_OPTIONS[0];
+  let gap = Math.abs(n - best);
+  for (const x of SMART_LOCK_OPTIONS) {
+    const g = Math.abs(n - x);
+    if (g < gap) {
+      best = x;
+      gap = g;
+    }
+  }
+  return best;
 }
 
 function getPlanConfig() {
@@ -335,19 +364,19 @@ function getGlobalCTAState() {
 
   // 未诊断或诊断未开始：引导诊断
   if (d.status === 'idle' || !d.queue?.length) {
-    return { text: '开始100题诊断（推荐）', action: 'diagnosis_start' };
+    return { text: '启动 AI 100题诊断（推荐）', action: 'diagnosis_start' };
   }
 
   // 已诊断：进入智能加速
   if (d.status === 'done') {
-    return { text: '开始智能加速练习', action: 'practice_smart' };
+    return { text: '开始 AI 加速练习', action: 'practice_smart' };
   }
 
   // fallback
   if ((progress.doneCount || 0) === 0) {
-    return { text: '开始100题诊断（推荐）', action: 'diagnosis_start' };
+    return { text: '启动 AI 100题诊断（推荐）', action: 'diagnosis_start' };
   }
-  return { text: '开始智能加速练习', action: 'practice_smart' };
+  return { text: '开始 AI 加速练习', action: 'practice_smart' };
 }
 
 function renderGlobalCTA() {
@@ -390,7 +419,7 @@ function openSettingsModal() {
   const cfg = getPlanConfig();
 
   const smart = qs('#settings-smart-lock-n');
-  if (smart) smart.value = String(settings.smartLockN || 5);
+  if (smart) smart.value = String(normalizeSmartLockN(settings.smartLockN || 10));
   const maxNew = qs('#settings-max-new');
   if (maxNew) maxNew.value = String(cfg.maxNewPerDay);
   const maxReview = qs('#settings-max-review');
@@ -424,7 +453,7 @@ function bindSettingsModal() {
   qs('#settings-cancel')?.addEventListener('click', closeSettingsModal);
   qs('#settings-reset')?.addEventListener('click', () => {
     const s = getSettings();
-    s.smartLockN = 5;
+    s.smartLockN = 10;
     s.plan = {
       maxNewPerDay: 160,
       maxReviewPerDay: 120,
@@ -441,7 +470,7 @@ function bindSettingsModal() {
 
   qs('#settings-save')?.addEventListener('click', () => {
     const err = qs('#settings-error');
-    const smartLockN = Number(qs('#settings-smart-lock-n')?.value || 5);
+    const smartLockN = Number(qs('#settings-smart-lock-n')?.value || 10);
     const maxNewPerDay = Number(qs('#settings-max-new')?.value || 160);
     const maxReviewPerDay = Number(qs('#settings-max-review')?.value || 120);
     const maxTotalPerDay = Number(qs('#settings-max-total')?.value || 200);
@@ -465,7 +494,7 @@ function bindSettingsModal() {
     }
 
     const s = getSettings();
-    s.smartLockN = clamp(Math.round(smartLockN), 3, 8);
+    s.smartLockN = normalizeSmartLockN(smartLockN);
     s.plan = {
       maxNewPerDay: clamp(Math.round(maxNewPerDay), 20, 400),
       maxReviewPerDay: clamp(Math.round(maxReviewPerDay), 0, 300),
@@ -477,7 +506,7 @@ function bindSettingsModal() {
     setSettings(s);
 
     const smartSel = qs('#smart-lock-n');
-    if (smartSel) smartSel.value = String(s.smartLockN || 5);
+    if (smartSel) smartSel.value = String(normalizeSmartLockN(s.smartLockN || 10));
 
     renderPlanSummary();
     if (!qs('#plan')?.classList.contains('hidden')) renderPlanPage();
@@ -549,12 +578,32 @@ const KNOWLEDGE_DICT = {
 };
 
 let practiceMode = 'all'; // all | wrong | smart | knowledge | review
+let orderPracticeScope = 'unanswered'; // unanswered | all
 let wrongQueue = [];
 let knowledgeQueue = [];
 let knowledgeTitle = '';
 let reviewQueue = [];
 const practiceDraftAnswers = {};
 const diagnosisDraftAnswers = {};
+
+function syncPracticeModeButtons() {
+  qsa('[data-practice-mode]').forEach(btn => {
+    const mode = btn.getAttribute('data-practice-mode');
+    if (mode === practiceMode) {
+      btn.classList.add('btn-primary');
+      btn.classList.remove('btn-secondary');
+    } else {
+      btn.classList.remove('btn-primary');
+      btn.classList.add('btn-secondary');
+    }
+  });
+  const smartCtl = qs('#smart-lock-control');
+  if (smartCtl) smartCtl.classList.toggle('hidden', practiceMode !== 'smart');
+  const orderCtl = qs('#order-scope-control');
+  if (orderCtl) orderCtl.classList.toggle('hidden', practiceMode !== 'all');
+  const orderSel = qs('#order-scope');
+  if (orderSel && orderSel.value !== orderPracticeScope) orderSel.value = orderPracticeScope;
+}
 
 function getCurrentQuestion() {
   if (practiceMode === 'wrong') return wrongQueue[currentIndex];
@@ -570,27 +619,95 @@ function getCurrentTotal() {
   return QUESTIONS.length;
 }
 
-function smartScoreQuestion(q, km, progress, now) {
+function getTopWrongReason(profile) {
+  const stat = profile?.reasonStat || {};
+  const top = Object.entries(stat).sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0];
+  return (top && Number(top[1] || 0) > 0) ? top[0] : '';
+}
+
+function getExamUrgency(examDate, now) {
+  if (!examDate) return 0.3;
+  const dayMs = 24 * 3600 * 1000;
+  const target = new Date(`${examDate}T00:00:00`).getTime();
+  if (!Number.isFinite(target)) return 0.3;
+  const daysLeft = Math.max(0, Math.ceil((target - now) / dayMs));
+  if (daysLeft <= 7) return 1;
+  if (daysLeft <= 14) return 0.8;
+  if (daysLeft <= 30) return 0.6;
+  return 0.35;
+}
+
+function smartScoreQuestion(q, context) {
+  const km = context?.km || {};
+  const progress = context?.progress || {};
+  const review = context?.review || {};
+  const profile = context?.profile || getLearnerProfile();
+  const now = Number(context?.now || Date.now());
+  const examDate = context?.examDate || '';
+
   const kid = q.knowledgeId || 'law.basic';
   const m = km[kid]?.mastery ?? 0.5;
   const freq = Number(q.frequency || 3);
-  const lastTs = km[kid]?.lastTs || 0;
-  const days = lastTs ? (now - lastTs) / (1000 * 3600 * 24) : 999;
-  const recencyBoost = Math.min(1.3, 0.8 + Math.min(7, days) / 10); // 0.8~1.3
-  const base = (1 - m) * (0.6 + 0.1 * freq) * recencyBoost;
-  const donePenalty = progress.answered?.[q.id] ? 0.85 : 1.0;
-  return base * donePenalty;
+  const diff = Number(q.difficulty || 3);
+  const answered = progress.answered?.[q.id];
+  const wasWrong = !!(answered && answered.correct === false);
+
+  const lastSeenTs = answered?.ts || profile?.byKnowledge?.[kid]?.lastTs || km[kid]?.lastTs || 0;
+  const daysSinceLast = lastSeenTs ? (now - lastSeenTs) / (1000 * 3600 * 24) : 30;
+  const forgetRisk = Math.min(1, Math.max(0, daysSinceLast / 10));
+
+  const dueTs = Number(review[q.id]?.nextTs || 0);
+  const dueBoost = dueTs > 0 && dueTs <= now ? 0.95 : 0;
+  const unseenBoost = answered ? 0 : 0.22;
+  const masteryRisk = (1 - m) * 1.15;
+  const wrongBoost = wasWrong ? 0.85 : 0;
+  const freqBoost = (freq / 5) * (0.35 + 0.35 * getExamUrgency(examDate, now));
+  const forgetBoost = forgetRisk * 0.65;
+
+  const topReason = getTopWrongReason(profile);
+  const stem = String(q.stem || '');
+  let reasonBoost = 0;
+  if (topReason === 'memory') {
+    reasonBoost = dueBoost > 0 ? 0.25 : (wasWrong ? 0.15 : 0);
+  } else if (topReason === 'understand') {
+    reasonBoost = diff >= 4 ? 0.2 : 0;
+  } else if (topReason === 'careless') {
+    reasonBoost = /(不得|必须|可以|不可以|不能|不准|严禁|应当|不应当|允许)/.test(stem) ? 0.2 : 0.05;
+  } else if (topReason === 'trap') {
+    reasonBoost = (freq >= 4 ? 0.15 : 0) + (diff >= 4 ? 0.08 : 0);
+  }
+
+  const donePenalty = answered && answered.correct ? 0.75 : 1;
+  const total = (masteryRisk + wrongBoost + dueBoost + freqBoost + forgetBoost + unseenBoost + reasonBoost) * donePenalty;
+
+  return {
+    total,
+    parts: {
+      masteryRisk,
+      wrongBoost,
+      dueBoost,
+      freqBoost,
+      forgetBoost,
+      unseenBoost,
+      reasonBoost
+    }
+  };
 }
 
 let smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
+let smartPickExplain = null;
 
 function pickSmartIndex(preferKnowledgeId = '') {
   const progress = getProgress();
   const km = getKnowledgeMastery();
+  const review = getReview();
+  const profile = getLearnerProfile();
   const now = Date.now();
+  const examDate = getExamDate();
+  const scoreContext = { km, progress, review, profile, now, examDate };
 
   const settings = getSettings();
-  const lockN = Number(settings.smartLockN || 5);
+  const lockN = normalizeSmartLockN(settings.smartLockN || 10);
 
   // 1) 若指定 preferKnowledgeId，则优先在该知识点内挑分最高题
   // 2) 否则若存在锁定 kid 且 remain>0，则在锁定知识点内挑
@@ -604,10 +721,11 @@ function pickSmartIndex(preferKnowledgeId = '') {
   let best = (pool.length ? pool[0] : poolBase[0]);
   let bestScore = -Infinity;
   for (const q of (pool.length ? pool : poolBase)) {
-    const s = smartScoreQuestion(q, km, progress, now);
-    if (s > bestScore) {
-      bestScore = s;
+    const scored = smartScoreQuestion(q, scoreContext);
+    if (scored.total > bestScore) {
+      bestScore = scored.total;
       best = q;
+      smartPickExplain = scored;
     }
   }
 
@@ -661,6 +779,8 @@ function renderQuestion() {
     }
   }
   qs('#q-tags').innerHTML = (q.tags || []).map(t => `<span class="badge badge-warning">${t}</span>`).join('')
+    + (practiceMode === 'smart' ? '<span class="badge badge-success">AI加速</span>' : '')
+    + (practiceMode === 'all' ? `<span class="badge badge-success">${orderPracticeScope === 'all' ? '顺序全量' : '顺序未做'}</span>` : '')
     + (practiceMode === 'wrong' ? '<span class="badge badge-error">错题重练</span>' : '')
     + (practiceMode === 'knowledge' ? `<span class="badge badge-success">专项：${knowledgeTitle || kName}</span>` : '')
     + (practiceMode === 'review' ? `<span class="badge badge-warning">到期复习</span>` : '');
@@ -686,14 +806,50 @@ function renderQuestion() {
   const reasonEl = qs('#smart-reason');
   if (reasonEl) {
     if (practiceMode === 'smart') {
-      const freq = Number(q.frequency || 3);
-      const m = (typeof mastery === 'number') ? mastery : 0.5;
+      const profile = getLearnerProfile();
+      const topReason = getTopWrongReason(profile);
+      const parts = smartPickExplain?.parts || {};
+      const partLabels = {
+        masteryRisk: '薄弱知识点',
+        wrongBoost: '历史错题',
+        dueBoost: '到期复习',
+        freqBoost: '高频考点',
+        forgetBoost: '遗忘风险',
+        unseenBoost: '新题覆盖',
+        reasonBoost: '个性错因'
+      };
+      const topParts = Object.entries(parts)
+        .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+        .slice(0, 2)
+        .filter(([, v]) => Number(v || 0) > 0.12)
+        .map(([k]) => partLabels[k] || k);
       const settings = getSettings();
-      const lockN = Number(settings.smartLockN || 5);
-      reasonEl.textContent = `推荐原因：高频权重 ${freq}/5 + 当前掌握度 ${(m * 100).toFixed(0)}% · 锁定知识点：${smartLock.kid ? (KNOWLEDGE_DICT[smartLock.kid] || smartLock.kid) : '—'}（剩余${Math.max(0, smartLock.remain)}题 / 每组${lockN}题）`;
+      const lockN = normalizeSmartLockN(settings.smartLockN || 10);
+      const topReasonText = ({
+        memory: '记忆巩固',
+        understand: '理解强化',
+        careless: '审题纠偏',
+        trap: '陷阱识别'
+      })[topReason] || '均衡训练';
+      const factors = topParts.length ? topParts.join(' + ') : '综合评分优先';
+      reasonEl.textContent = `AI 专属建议：当前先做「${factors}」题型（主策略：${topReasonText}）· 锁定知识点：${smartLock.kid ? (KNOWLEDGE_DICT[smartLock.kid] || smartLock.kid) : '—'}（剩余${Math.max(0, smartLock.remain)}题 / 每组${lockN}题）`;
       reasonEl.classList.remove('hidden');
     } else if (practiceMode === 'knowledge') {
       reasonEl.textContent = `专项练习：${knowledgeTitle || kName} · 剩余 ${Math.max(0, getCurrentTotal() - (currentIndex + 1))} 题`;
+      reasonEl.classList.remove('hidden');
+    } else if (practiceMode === 'review') {
+      const due = getDueReviewCount();
+      reasonEl.textContent = `复习模式：优先到期题（当前到期 ${due} 题）· 目标是防遗忘，不追求新题覆盖。`;
+      reasonEl.classList.remove('hidden');
+    } else if (practiceMode === 'wrong') {
+      const wc = getWrongList().length;
+      reasonEl.textContent = `错题模式：聚焦历史错误（当前错题 ${wc} 题）· 连续答对 2 次会自动移出。`;
+      reasonEl.classList.remove('hidden');
+    } else if (practiceMode === 'all') {
+      const p = getProgress();
+      const remain = QUESTIONS.filter(x => !p.answered?.[x.id]).length;
+      const scopeText = orderPracticeScope === 'all' ? '全量顺序（从头覆盖）' : '未做优先（先清未做题）';
+      reasonEl.textContent = `顺序模式：${scopeText}（剩余未做 ${remain} 题）· 适合系统覆盖全量题库。`;
       reasonEl.classList.remove('hidden');
     } else {
       reasonEl.classList.add('hidden');
@@ -711,9 +867,23 @@ function renderQuestion() {
   const selectedSet = new Set(selectedIndexes);
 
   function applyAnswer(selectedPayload, correct) {
+    const ts = Date.now();
     upsertAnswer(q.id, selectedPayload, correct, { wrongClearThreshold: 2 });
     updateKnowledgeMastery(q.knowledgeId, correct, { frequency: q.frequency, difficulty: q.difficulty });
     scheduleReview(q.id, correct);
+    updateLearnerProfileOnAnswer({
+      ts,
+      questionId: q.id,
+      knowledgeId: q.knowledgeId,
+      correct
+    });
+    trackLearningEvent('answer_submitted', {
+      mode: practiceMode,
+      questionId: q.id,
+      knowledgeId: q.knowledgeId,
+      correct: !!correct,
+      questionType: q.type
+    });
     delete practiceDraftAnswers[q.id];
 
     if (practiceMode === 'knowledge' && !correct) {
@@ -727,6 +897,12 @@ function renderQuestion() {
       else smartLock.groupWrong += 1;
       if (smartLock.remain > 0) smartLock.remain -= 1;
       if (smartLock.remain <= 0) {
+        trackLearningEvent('smart_group_finished', {
+          knowledgeId: smartLock.kid,
+          total: smartLock.groupTotal,
+          correct: smartLock.groupCorrect,
+          wrong: smartLock.groupWrong
+        });
         openSmartSummary();
         renderStats();
         renderPlanSummary();
@@ -856,6 +1032,7 @@ function renderQuestion() {
   // buttons state
   qs('#btn-prev').disabled = currentIndex === 0;
   qs('#btn-next').disabled = currentIndex === getCurrentTotal() - 1;
+  syncPracticeModeButtons();
 }
 
 function renderStats() {
@@ -872,6 +1049,7 @@ function renderStats() {
   const wrongCount = (getWrongList() || []).length;
   const wrongBadge = qs('#stat-wrong');
   if (wrongBadge) wrongBadge.textContent = String(wrongCount);
+  renderTodayMissionFlow();
 }
 
 function openSmartSummary() {
@@ -885,7 +1063,7 @@ function openSmartSummary() {
   }
 
   const settings = getSettings();
-  const lockN = Number(settings.smartLockN || 5);
+  const lockN = normalizeSmartLockN(settings.smartLockN || 10);
   const used = smartLock.groupTotal;
   const acc = used ? Math.round((smartLock.groupCorrect / used) * 100) : 0;
   const mins = Math.max(1, Math.round((Date.now() - (smartLock.groupStartTs || Date.now())) / 60000));
@@ -901,7 +1079,7 @@ function openSmartSummary() {
       <div class="card"><p class="text-neutral">当前掌握度</p><p class="text-2xl font-bold mt-1">${mText}</p><p class="text-sm text-neutral mt-1">本组用时约 ${mins} 分钟</p></div>
     </div>
     <div class="bg-gray-50 p-4 rounded-lg text-sm text-neutral">
-      <p><strong>下一步：</strong>继续下一组（每组 ${lockN} 题），系统将优先安排你的高频短板与到期复习。</p>
+      <p><strong>下一步：</strong>继续下一组（每组 ${lockN} 题），AI 将优先安排你的高频短板与到期复习。</p>
     </div>
   `;
 
@@ -917,21 +1095,24 @@ function bindEvents() {
       const target = this.getAttribute('data-target');
       const titles = {
         'home': '首页',
-        'diagnosis': '智能诊断',
-        'learning': '个性学习',
+        'diagnosis': 'AI 智能诊断',
+        'learning': 'AI 个性学习',
         'practice': '练题',
         'wrongbook': '错题本',
         'plan': '今日计划',
         'question-bank': '题库',
         'exam': '模拟考试',
-        'wrong-questions': '错题管理',
         'crash-course': '考前冲刺',
-        'report': '学习报告',
+        'report': 'AI 学习报告',
         'help': '使用说明'
       };
       showPage(target, titles[target] || '');
       if (target === 'practice') {
         renderQuestion();
+      }
+      if (target === 'home') {
+        renderStats();
+        renderPlanSummary();
       }
       if (target === 'wrongbook') {
         renderWrongbook();
@@ -992,15 +1173,29 @@ function bindEvents() {
   const smartSel = qs('#smart-lock-n');
   if (smartSel) {
     const settings = getSettings();
-    smartSel.value = String(settings.smartLockN || 5);
+    smartSel.value = String(normalizeSmartLockN(settings.smartLockN || 10));
     smartSel.addEventListener('change', () => {
       const s = getSettings();
-      s.smartLockN = Number(smartSel.value || 5);
+      s.smartLockN = normalizeSmartLockN(smartSel.value || 10);
       setSettings(s);
       // 重置当前锁定，使新配置立刻生效
       smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
       if (practiceMode === 'smart') {
         currentIndex = pickSmartIndex();
+        renderQuestion();
+      }
+    });
+  }
+
+  const orderSel = qs('#order-scope');
+  if (orderSel) {
+    orderSel.value = orderPracticeScope;
+    orderSel.addEventListener('change', () => {
+      const v = String(orderSel.value || 'unanswered');
+      orderPracticeScope = (v === 'all') ? 'all' : 'unanswered';
+      if (practiceMode === 'all') {
+        startOrderPractice(orderPracticeScope);
+      } else {
         renderQuestion();
       }
     });
@@ -1091,20 +1286,20 @@ function bindEvents() {
   // 模式切换
   qsa('[data-practice-mode]').forEach(btn => {
     btn.addEventListener('click', () => {
-      practiceMode = btn.getAttribute('data-practice-mode');
-      qsa('[data-practice-mode]').forEach(b => b.classList.remove('btn-primary'));
-      btn.classList.add('btn-primary');
-
-      if (practiceMode === 'smart') {
-        smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
-        currentIndex = pickSmartIndex();
-      } else if (practiceMode === 'wrong') {
+      const mode = btn.getAttribute('data-practice-mode');
+      if (mode === 'smart') {
+        startSmartPractice();
+        return;
+      }
+      if (mode === 'wrong') {
         startWrongPractice();
         return;
-      } else {
-        currentIndex = 0;
       }
-      renderQuestion();
+      if (mode === 'review') {
+        startReviewPractice();
+        return;
+      }
+      startOrderPractice();
     });
   });
   qs('#btn-fav').addEventListener('click', () => {
@@ -1123,6 +1318,12 @@ function bindEvents() {
       const q = getCurrentQuestion();
       if (!q) return;
       setWrongReasonForQuestion(q.id, r.value);
+      updateLearnerProfileWrongReason(r.value);
+      trackLearningEvent('wrong_reason_tagged', {
+        questionId: q.id,
+        knowledgeId: q.knowledgeId,
+        reason: r.value
+      });
     });
   });
 
@@ -1171,15 +1372,13 @@ function bindEvents() {
     btn.addEventListener('click', () => {
       const mode = btn.getAttribute('data-learning-mode');
       if (mode === 'order') {
-        practiceMode = 'all';
-        currentIndex = 0;
-        showPage('practice', '练题');
-        renderQuestion();
+        startOrderPractice(orderPracticeScope);
         return;
       }
       if (mode === 'random') {
         practiceMode = 'all';
         currentIndex = Math.floor(Math.random() * QUESTIONS.length);
+        syncPracticeModeButtons();
         showPage('practice', '练题');
         renderQuestion();
         return;
@@ -1222,40 +1421,19 @@ function bindEvents() {
     }
   });
 
-  // 错题管理页按钮
-  qsa('[data-wq-action]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const act = btn.getAttribute('data-wq-action');
-      if (act === 'repractice') {
-        showPage('wrongbook', '错题本');
-        renderWrongbook();
-        startWrongPractice();
-      }
-      if (act === 'clear') {
-        const ok = confirm('确认清空错题本与错题计数？');
-        if (!ok) return;
-        localStorage.removeItem('qa.wrong');
-        localStorage.removeItem('qa.wrongStreak');
-        renderWrongbook();
-        renderStats();
-      }
-    });
+  qs('#btn-wrong-clear')?.addEventListener('click', () => {
+    const ok = confirm('确认清空错题本与错题计数？');
+    if (!ok) return;
+    localStorage.removeItem('qa.wrong');
+    localStorage.removeItem('qa.wrongStreak');
+    renderWrongbook();
+    renderStats();
   });
 
   // 考前冲刺入口：先跳转到智能加速（后续可做冲刺策略）
   qsa('[data-go-crash]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const mode = btn.getAttribute('data-go-crash');
-      if (mode === '1d') {
-        startMockExam('quick');
-        return;
-      }
-      const weak = getCrashWeakKnowledge(1)[0];
-      if (weak) {
-        startKnowledgePractice(weak.kid, 30);
-        return;
-      }
-      startSmartPractice();
+      startMockExam('standard');
     });
   });
 
@@ -1281,8 +1459,14 @@ function startWrongPractice() {
   const ids = getWrongList();
   const map = new Map(QUESTIONS.map(q => [q.id, q]));
   wrongQueue = ids.map(id => map.get(id)).filter(Boolean);
+  if (!wrongQueue.length) {
+    alert('当前没有错题，已切换到智能加速练习。');
+    startSmartPractice();
+    return;
+  }
   practiceMode = 'wrong';
   currentIndex = 0;
+  syncPracticeModeButtons();
   showPage('practice', '错题重练');
   renderQuestion();
 }
@@ -1298,16 +1482,13 @@ function startReviewPractice() {
 
   if (!reviewQueue.length) {
     alert('暂无到期复习题（原型提示）。继续智能加速或稍后再来。');
-    practiceMode = 'smart';
-    smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
-    currentIndex = pickSmartIndex();
-    showPage('practice', '练题');
-    renderQuestion();
+    startSmartPractice();
     return;
   }
 
   practiceMode = 'review';
   currentIndex = 0;
+  syncPracticeModeButtons();
   showPage('practice', '到期复习');
   renderQuestion();
 }
@@ -1316,8 +1497,166 @@ function startSmartPractice() {
   practiceMode = 'smart';
   smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
   currentIndex = pickSmartIndex();
+  syncPracticeModeButtons();
   showPage('practice', '练题');
   renderQuestion();
+}
+
+function startOrderPractice(scope = '') {
+  if (scope === 'all' || scope === 'unanswered') orderPracticeScope = scope;
+  practiceMode = 'all';
+  if (orderPracticeScope === 'all') {
+    currentIndex = 0;
+  } else {
+    const p = getProgress();
+    const firstUnanswered = QUESTIONS.findIndex(q => !p.answered?.[q.id]);
+    currentIndex = firstUnanswered >= 0 ? firstUnanswered : 0;
+  }
+  syncPracticeModeButtons();
+  showPage('practice', '练题');
+  renderQuestion();
+}
+
+function getTodayMissionState() {
+  const weak = getCrashWeakKnowledge(1);
+  const weakKid = weak[0]?.kid || 'law.basic';
+  const weakName = KNOWLEDGE_DICT[weakKid] || weakKid;
+  const dueCount = getDueReviewCount();
+  const reviewTarget = Math.max(8, Math.min(20, dueCount || 8));
+
+  const events = getLearningEvents();
+  const start = new Date(`${todayStr()}T00:00:00`).getTime();
+  const end = start + 24 * 3600 * 1000;
+  const todayEvents = (events || []).filter(e => {
+    const ts = Number(e?.ts || 0);
+    return ts >= start && ts < end;
+  });
+
+  const weakDone = todayEvents.filter(e =>
+    e?.event === 'answer_submitted'
+    && e?.payload?.knowledgeId === weakKid
+  ).length;
+  const reviewDone = todayEvents.filter(e =>
+    e?.event === 'answer_submitted'
+    && e?.payload?.mode === 'review'
+  ).length;
+
+  const examDone = getExamHistory().some(x => {
+    const ts = Number(x?.finishedAt || 0);
+    return ts >= start && ts < end && String(x?.examType || '') === 'quick';
+  });
+
+  const step1Done = weakDone >= 20;
+  const step2Done = (dueCount === 0) || (reviewDone >= reviewTarget);
+  const step3Done = examDone;
+
+  return {
+    weakKid,
+    weakName,
+    dueCount,
+    reviewTarget,
+    weakDone,
+    reviewDone,
+    step1Done,
+    step2Done,
+    step3Done
+  };
+}
+
+function runTodayMissionAction(action, extra = {}) {
+  if (action === 'weak') {
+    const kid = extra.kid || getTodayMissionState().weakKid;
+    startKnowledgePractice(kid, 20);
+    return;
+  }
+  if (action === 'review') {
+    startReviewPractice();
+    return;
+  }
+  if (action === 'exam-quick') {
+    startMockExam('quick');
+    return;
+  }
+}
+
+function renderTodayMissionFlow() {
+  const box = qs('#today-missions-box');
+  if (!box) return;
+
+  const st = getTodayMissionState();
+  const rows = [
+    {
+      id: 1,
+      title: `弱项专项20题 · ${st.weakName}`,
+      hint: `已完成 ${Math.min(st.weakDone, 20)}/20 题`,
+      done: st.step1Done,
+      action: 'weak',
+      kid: st.weakKid,
+      cta: '开始专项'
+    },
+    {
+      id: 2,
+      title: '到期复习清理',
+      hint: st.dueCount
+        ? `到期 ${st.dueCount} 题，已完成 ${Math.min(st.reviewDone, st.reviewTarget)}/${st.reviewTarget}`
+        : '当前无到期题，系统判定已完成',
+      done: st.step2Done,
+      action: 'review',
+      cta: '开始复习'
+    },
+    {
+      id: 3,
+      title: '20分钟快速模考',
+      hint: st.step3Done ? '今日已完成 1 次快速模考' : '建议今天完成 1 次，校准临考状态',
+      done: st.step3Done,
+      action: 'exam-quick',
+      cta: '开始模考'
+    }
+  ];
+
+  const next = rows.find(x => !x.done);
+  const allDone = !next;
+
+  box.innerHTML = `
+    <div class="space-y-3">
+      ${rows.map(r => `
+        <div class="flex items-center justify-between p-3 border ${r.done ? 'border-success/40 bg-success/5' : 'border-gray-200'} rounded-lg">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-full ${r.done ? 'bg-success/15 text-success' : 'bg-primary/10 text-primary'} flex items-center justify-center">
+              <i class="fa ${r.done ? 'fa-check' : 'fa-flag'}"></i>
+            </div>
+            <div>
+              <p class="font-medium">步骤 ${r.id}：${r.title}</p>
+              <p class="text-sm text-neutral">${r.hint}</p>
+            </div>
+          </div>
+          <button
+            class="btn ${r.done ? 'btn-secondary' : 'btn-primary'}"
+            ${r.done ? 'disabled' : ''}
+            data-mission-action="${r.action}"
+            ${r.kid ? `data-mission-kid="${r.kid}"` : ''}
+          >${r.done ? '已完成' : r.cta}</button>
+        </div>
+      `).join('')}
+    </div>
+    <div class="mt-4 border-t border-gray-200 pt-3 flex items-center justify-between gap-3">
+      <p class="text-sm text-neutral">${allDone ? '今日三步已全部完成，建议继续 AI 加速巩固。' : `下一步建议：先完成步骤 ${next.id}`}</p>
+      <button
+        class="btn ${allDone ? 'btn-secondary' : 'btn-primary'}"
+        ${allDone ? 'disabled' : ''}
+        ${allDone ? '' : `data-mission-action="${next.action}"`}
+        ${allDone || !next.kid ? '' : `data-mission-kid="${next.kid}"`}
+      >${allDone ? '今日任务完成' : `去做步骤 ${next.id}`}</button>
+    </div>
+  `;
+
+  qsa('[data-mission-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.getAttribute('data-mission-action') || '';
+      const kid = btn.getAttribute('data-mission-kid') || '';
+      runTodayMissionAction(action, { kid });
+    });
+  });
 }
 
 function getCrashWeakKnowledge(limit = 3) {
@@ -1369,6 +1708,16 @@ function runCrashAction(action, extra = {}) {
     startKnowledgePractice(kid, 20);
     return;
   }
+  if (action === 'exam-weak') {
+    const kid = extra.kid || getCrashWeakKnowledge(1)[0]?.kid || '';
+    if (!kid) {
+      alert('暂无可用弱项数据，已为你切换到标准100题模拟考试。');
+      startMockExam('standard');
+      return;
+    }
+    startMockExam('standard', { knowledgeId: kid });
+    return;
+  }
   if (action === 'exam-standard') {
     startMockExam('standard');
     return;
@@ -1391,40 +1740,43 @@ function renderCrashCourse() {
   const dueReview = getDueReviewCount();
   const recent = getRecentAccuracy(3);
   const weak = getCrashWeakKnowledge(3);
+  const weakCountMap = {};
+  weak.forEach(x => {
+    weakCountMap[x.kid] = QUESTIONS.filter(q => (q.knowledgeId || 'law.basic') === x.kid).length;
+  });
   const topWeak = weak[0];
   const weakName = topWeak ? (KNOWLEDGE_DICT[topWeak.kid] || topWeak.kid) : '暂无';
+  const topWeakCount = topWeak ? Number(weakCountMap[topWeak.kid] || 0) : 0;
   const latestExam = getExamHistory()
     .slice()
     .sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0))[0];
   const latestScoreText = latestExam ? `${latestExam.score}分（${latestExam.examType === 'quick' ? '快速测试' : '标准考试'}）` : '暂无';
-  const examAction = (!examDate || daysLeft > 1) ? 'exam-standard' : 'exam-quick';
-  const examActionText = examAction === 'exam-quick' ? '开始20分钟快速测试' : '开始45分钟标准模拟';
 
   const tasks = [
     {
       title: '错题速刷',
-      hint: `当前错题 ${wrongCount} 题，优先清理易错陷阱题`,
-      action: 'wrong',
-      cta: wrongCount ? '开始错题冲刺' : '无错题，转智能加速'
+      hint: `当前错题 ${wrongCount} 题，建议用100题模拟考试检验冲刺效果`,
+      action: 'exam-standard',
+      cta: '开始100题模拟考试'
     },
     {
       title: '到期复习',
-      hint: `当前到期复习 ${dueReview} 题，优先完成以防遗忘`,
-      action: 'review',
-      cta: '开始到期复习'
+      hint: `当前到期复习 ${dueReview} 题，建议先做一套100题模拟考试`,
+      action: 'exam-standard',
+      cta: '开始100题模拟考试'
     },
     {
       title: '弱项专项',
-      hint: `当前最弱：${weakName}`,
-      action: 'weak',
-      cta: '开始20题专项',
+      hint: `当前最弱：${weakName}（可出题 ${topWeakCount} 道，最多100道）`,
+      action: 'exam-weak',
+      cta: topWeakCount ? `开始专项模拟（${Math.min(100, topWeakCount)}题）` : '开始100题模拟考试',
       kid: topWeak?.kid || ''
     },
     {
       title: '模拟实战',
       hint: `最近一次成绩：${latestScoreText}`,
-      action: examAction,
-      cta: examActionText
+      action: 'exam-standard',
+      cta: '开始100题模拟考试'
     }
   ];
 
@@ -1476,8 +1828,8 @@ function renderCrashCourse() {
         ${weak.map(x => `
           <div class="border border-gray-200 rounded-lg p-4">
             <p class="font-medium">${KNOWLEDGE_DICT[x.kid] || x.kid}</p>
-            <p class="text-sm text-neutral mt-1">掌握度：${Math.round(x.mastery * 100)}% · 作答：${x.attempts} 题</p>
-            <button class="btn btn-outline w-full mt-3" data-crash-action="weak" data-crash-kid="${x.kid}">开始专项20题</button>
+            <p class="text-sm text-neutral mt-1">掌握度：${Math.round(x.mastery * 100)}% · 作答：${x.attempts} 题 · 可出题 ${Math.min(100, Number(weakCountMap[x.kid] || 0))} 题</p>
+            <button class="btn btn-outline w-full mt-3" data-crash-action="exam-weak" data-crash-kid="${x.kid}">开始专项模拟考试</button>
           </div>
         `).join('')}
       </div>
@@ -1526,6 +1878,36 @@ function getLearningStreak() {
   return streak;
 }
 
+function formatHourSlot(h) {
+  const n = Number(h);
+  if (!Number.isFinite(n) || n < 0 || n > 23) return '未识别';
+  const hh = String(n).padStart(2, '0');
+  const next = String((n + 1) % 24).padStart(2, '0');
+  return `${hh}:00-${next}:00`;
+}
+
+function getTopStudyHours(byHour, topN = 2) {
+  return Object.entries(byHour || {})
+    .map(([h, c]) => ({ h: Number(h), c: Number(c || 0) }))
+    .filter(x => Number.isFinite(x.h) && x.h >= 0 && x.h <= 23 && x.c > 0)
+    .sort((a, b) => b.c - a.c)
+    .slice(0, topN);
+}
+
+function getPrimaryWeakByProfile(profile, weakList = []) {
+  const list = Object.entries(profile?.byKnowledge || {})
+    .map(([kid, v]) => {
+      const attempts = Number(v?.attempts || 0);
+      const correct = Number(v?.correct || 0);
+      const acc = attempts ? (correct / attempts) : 0;
+      return { kid, attempts, acc };
+    })
+    .filter(x => x.attempts >= 3)
+    .sort((a, b) => (a.acc - b.acc) || (b.attempts - a.attempts));
+  if (list.length) return list[0].kid;
+  return weakList[0]?.kid || '';
+}
+
 function renderReportPage() {
   const box = qs('#report-box');
   if (!box) return;
@@ -1558,6 +1940,7 @@ function renderReportPage() {
   const lastExam = examList[0];
 
   const weak = getCrashWeakKnowledge(5);
+  const learnerProfile = getLearnerProfile();
   const wrongReason = getWrongReason();
   const wrongStat = { memory: 0, understand: 0, careless: 0, trap: 0 };
   Object.values(wrongReason || {}).forEach(v => {
@@ -1597,6 +1980,24 @@ function renderReportPage() {
       : '通过风险较高，建议先做弱项专项 + 错题冲刺。';
   const deltaText = (n) => (n > 0 ? `+${n}` : `${n}`);
 
+  const profileTotal = Number(learnerProfile.total || 0);
+  const profileAcc = profileTotal ? Math.round((Number(learnerProfile.correct || 0) / profileTotal) * 100) : totalAcc;
+  const topHours = getTopStudyHours(learnerProfile.byHour || {}, 2);
+  const topHoursText = topHours.length ? topHours.map(x => formatHourSlot(x.h)).join(' / ') : '数据不足';
+  const profileReason = (Object.entries(learnerProfile.reasonStat || {})
+    .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0]) || topReason || ['memory', 0];
+  const profileReasonKey = profileReason?.[0] || 'memory';
+  const profileReasonLabel = reasonLabel[profileReasonKey] || '记忆错误';
+  const weakKidByProfile = getPrimaryWeakByProfile(learnerProfile, weak);
+  const weakNameByProfile = weakKidByProfile ? (KNOWLEDGE_DICT[weakKidByProfile] || weakKidByProfile) : '数据不足';
+  const strategyByReason = {
+    memory: '建议优先做到期复习 + 间隔重复（1/3/7天）',
+    understand: '建议先做弱项专项，再看解析对比题',
+    careless: '建议开启关键词审题，提交前二次检查',
+    trap: '建议优先高频高难题，强化易混淆选项辨识'
+  };
+  const coachText = strategyByReason[profileReasonKey] || '建议维持智能加速 + 每日复习闭环';
+
   box.innerHTML = `
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
       <div class="card"><p class="text-neutral">总做题</p><p class="text-2xl font-bold mt-1">${totalDone}</p><p class="text-sm text-neutral mt-1">题库总量 ${QUESTIONS.length}</p></div>
@@ -1620,6 +2021,32 @@ function renderReportPage() {
         <p class="text-neutral">考试通过预测</p>
         <p class="text-2xl font-bold mt-1">${passProb}%</p>
         <p class="text-sm text-neutral mt-1">预测分 ${predictScore} · ${examDate ? `距考试 ${daysLeft} 天` : '未设置考试日期'}</p>
+      </div>
+    </div>
+
+    <div class="card mt-4">
+      <h4 class="font-bold mb-3">AI 学习画像</h4>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div class="border border-gray-200 rounded-lg p-3">
+          <p class="text-neutral text-sm">画像正确率</p>
+          <p class="text-2xl font-bold mt-1">${profileAcc}%</p>
+          <p class="text-xs text-neutral mt-1">样本 ${profileTotal} 题</p>
+        </div>
+        <div class="border border-gray-200 rounded-lg p-3">
+          <p class="text-neutral text-sm">最常错因</p>
+          <p class="text-xl font-bold mt-1">${profileReasonLabel}</p>
+          <p class="text-xs text-neutral mt-1">建议：${coachText}</p>
+        </div>
+        <div class="border border-gray-200 rounded-lg p-3">
+          <p class="text-neutral text-sm">高效学习时段</p>
+          <p class="text-xl font-bold mt-1">${topHoursText}</p>
+          <p class="text-xs text-neutral mt-1">基于近期作答分布</p>
+        </div>
+        <div class="border border-gray-200 rounded-lg p-3">
+          <p class="text-neutral text-sm">当前主攻弱项</p>
+          <p class="text-xl font-bold mt-1">${weakNameByProfile}</p>
+          <button class="btn btn-outline mt-2 w-full" data-report-action="weak" ${weakKidByProfile ? `data-report-kid="${weakKidByProfile}"` : ''}>立即专项20题</button>
+        </div>
       </div>
     </div>
 
@@ -1690,7 +2117,7 @@ function renderReportPage() {
     </div>
 
     <div class="card mt-4">
-      <h4 class="font-bold mb-3">行动建议（可直接执行）</h4>
+      <h4 class="font-bold mb-3">AI 行动建议（可直接执行）</h4>
       <p class="text-sm text-neutral mb-3">${riskText}</p>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <button class="btn btn-primary" data-report-action="weak" ${weakActionKid ? `data-report-kid="${weakActionKid}"` : ''}>先补最弱知识点</button>
@@ -1725,6 +2152,7 @@ let mockExamTimer = null;
 let mockExam = {
   status: 'idle',
   examType: 'standard',
+  scopeLabel: '',
   total: 0,
   durationSec: 0,
   queue: [],
@@ -1750,6 +2178,17 @@ function buildMockExamQueue(totalCount) {
   return queue;
 }
 
+function buildMockExamQueueByKnowledge(knowledgeId, totalCount = 100) {
+  const kid = String(knowledgeId || '');
+  const pool = QUESTIONS.filter(q => (q.knowledgeId || 'law.basic') === kid);
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const total = Math.max(0, Math.min(Number(totalCount || 100), pool.length));
+  return pool.slice(0, total).map(q => q.id);
+}
+
 function stopMockExamTimer() {
   if (mockExamTimer) {
     clearInterval(mockExamTimer);
@@ -1757,15 +2196,34 @@ function stopMockExamTimer() {
   }
 }
 
-function startMockExam(mode = 'standard') {
+function startMockExam(mode = 'standard', opts = {}) {
   if (!QUESTIONS.length) {
     showQuestionLoadHint();
     return;
   }
 
   const examType = mode === 'quick' ? 'quick' : 'standard';
-  const total = examType === 'quick' ? QUICK_TOTAL : DIAG_TOTAL;
-  const durationSec = examType === 'quick' ? QUICK_DURATION_SEC : DIAG_DURATION_SEC;
+  const knowledgeId = String(opts.knowledgeId || '');
+  const kName = KNOWLEDGE_DICT[knowledgeId] || knowledgeId;
+  const isKnowledgeExam = !!knowledgeId;
+  let total = examType === 'quick' ? QUICK_TOTAL : DIAG_TOTAL;
+  let durationSec = examType === 'quick' ? QUICK_DURATION_SEC : DIAG_DURATION_SEC;
+  let queue = [];
+  let scopeLabel = '';
+
+  if (isKnowledgeExam) {
+    queue = buildMockExamQueueByKnowledge(knowledgeId, DIAG_TOTAL);
+    total = queue.length;
+    if (!total) {
+      alert('该知识点暂无可用题目，已为你切换到标准100题模拟考试。');
+      startMockExam('standard');
+      return;
+    }
+    durationSec = Math.max(10 * 60, Math.round((DIAG_DURATION_SEC * total) / DIAG_TOTAL));
+    scopeLabel = `薄弱专项模拟 · ${kName}`;
+  } else {
+    queue = buildMockExamQueue(total);
+  }
 
   if (mockExam.status === 'running') {
     const ok = confirm('当前有进行中的模拟考试，确认重新开始吗？');
@@ -1776,9 +2234,10 @@ function startMockExam(mode = 'standard') {
   mockExam = {
     status: 'running',
     examType,
+    scopeLabel,
     total,
     durationSec,
-    queue: buildMockExamQueue(total),
+    queue,
     cursor: 0,
     answers: {},
     startedAt: Date.now(),
@@ -1864,7 +2323,7 @@ function renderMockExamRuntime() {
       <div class="card">
         <h4 class="text-lg font-bold">考试完成</h4>
         <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-4">
-          <div class="card"><p class="text-neutral">类型</p><p class="text-xl font-bold mt-1">${r.examType === 'quick' ? '快速测试' : '标准考试'}</p></div>
+          <div class="card"><p class="text-neutral">类型</p><p class="text-xl font-bold mt-1">${mockExam.scopeLabel || (r.examType === 'quick' ? '快速测试' : '标准考试')}</p></div>
           <div class="card"><p class="text-neutral">得分</p><p class="text-2xl font-bold mt-1">${r.score}分</p></div>
           <div class="card"><p class="text-neutral">答对/总题</p><p class="text-2xl font-bold mt-1">${r.correct}/${r.total}</p></div>
           <div class="card"><p class="text-neutral">结果</p><p class="text-2xl font-bold mt-1 ${pass ? 'text-success' : 'text-error'}">${pass ? '通过' : '未通过'}</p></div>
@@ -1881,6 +2340,7 @@ function renderMockExamRuntime() {
       mockExam = {
         status: 'idle',
         examType: 'standard',
+        scopeLabel: '',
         total: 0,
         durationSec: 0,
         queue: [],
@@ -1922,7 +2382,7 @@ function renderMockExamRuntime() {
     <div class="card">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-          <h4 class="text-lg font-bold">${mockExam.examType === 'quick' ? '快速测试' : '标准考试'}</h4>
+          <h4 class="text-lg font-bold">${mockExam.scopeLabel || (mockExam.examType === 'quick' ? '快速测试' : '标准考试')}</h4>
           <p class="text-sm text-neutral mt-1">${typeText} · 题目 ${mockExam.cursor + 1}/${mockExam.total} · 已作答 ${answeredCount} 题 · 未作答 ${unansweredCount} 题${draftCount ? ` · 待提交 ${draftCount} 题` : ''}</p>
         </div>
         <div class="flex items-center gap-2">
@@ -1971,7 +2431,7 @@ function renderMockExamRuntime() {
     } else if (selectedSet.has(oi)) {
       item.classList.add('selected');
     }
-    item.innerHTML = `<div class="option-indicator">${renderOptionLabel(oi)}</div><div>${text}</div>`;
+    item.innerHTML = `<div class="option-indicator">${renderOptionKey(oi)}</div><div>${text}</div>`;
     item.addEventListener('click', () => {
       if (isSubmitted) return;
       const cur = new Set(selected);
@@ -1993,7 +2453,7 @@ function renderMockExamRuntime() {
     if (analysis) analysis.classList.remove('hidden');
     if (result) result.innerHTML = ans.correct
       ? '<span class="badge badge-success">回答正确</span>'
-      : `<span class="badge badge-error">回答错误</span> 正确答案：${getAnswerIndexes(q.answer).map(i => renderOptionLabel(i)).join('、')}`;
+      : `<span class="badge badge-error">回答错误</span> 正确答案：${getAnswerIndexes(q.answer).map(i => renderOptionLabel(q, i)).join('、')}`;
   }
 
   qs('#mock-exam-prev')?.addEventListener('click', () => {
@@ -2062,8 +2522,12 @@ const PASS_SCORE = 90;
 function buildDiagnosisQueue(totalCount = DIAG_TOTAL) {
   // 半自适应：先覆盖知识点，再偏薄弱高频（不足则循环补齐）
   const km = getKnowledgeMastery();
+  const review = getReview();
+  const profile = getLearnerProfile();
+  const examDate = getExamDate();
   const now = Date.now();
   const progress = getProgress();
+  const scoreContext = { km, progress, review, profile, now, examDate };
 
   // 1) 覆盖：每个知识点尽量选1题（共12题，若题库不足则跳过）
   const byK = {};
@@ -2085,8 +2549,8 @@ function buildDiagnosisQueue(totalCount = DIAG_TOTAL) {
   const chosen = new Set(cover.map(q => q.id));
   const rest = QUESTIONS
     .filter(q => !chosen.has(q.id))
-    .map(q => ({ q, s: smartScoreQuestion(q, km, progress, now) }))
-    .sort((a, b) => b.s - a.s)
+    .map(q => ({ q, s: smartScoreQuestion(q, scoreContext).total }))
+    .sort((a, b) => Number(b.s || 0) - Number(a.s || 0))
     .map(x => x.q);
 
   const queue = [...cover, ...rest].slice(0, totalCount).map(q => q.id);
@@ -2594,20 +3058,20 @@ function renderDiagnosisReport() {
     <div class="card mb-6">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h4 class="text-lg font-bold">诊断报告</h4>
-          <p class="text-neutral mt-1">预测得分（加权）：<span class="text-primary font-bold text-xl">${score}</span> 分</p>
+          <h4 class="text-lg font-bold">AI 诊断报告</h4>
+          <p class="text-neutral mt-1">AI 预测得分（加权）：<span class="text-primary font-bold text-xl">${score}</span> 分</p>
           <p class="text-sm text-neutral mt-2">口径：知识点掌握度按题库考频（frequency）加权，优先反映“高频短板”。</p>
         </div>
         <div class="flex gap-2">
-          <button class="btn btn-primary" id="btn-go-smart">一键进入智能加速练习</button>
-          <button class="btn btn-outline" id="btn-roi-chain">一键串练ROI专项（5×20题）</button>
+          <button class="btn btn-primary" id="btn-go-smart">一键进入 AI 加速练习</button>
+          <button class="btn btn-outline" id="btn-roi-chain">一键执行 AI ROI 路径（5×20题）</button>
           <button class="btn btn-outline" id="btn-diag-redo">重新诊断</button>
         </div>
       </div>
 
       <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div class="lg:col-span-1">
-          <h5 class="font-bold mb-3">提分清单 TOP5（ROI）</h5>
+          <h5 class="font-bold mb-3">AI 提分清单 TOP5（ROI）</h5>
           <div class="space-y-3">
             ${topROI.map(r => {
               const pct = Math.round(r.mastery * 100);
@@ -2839,7 +3303,8 @@ function bindHelpActions() {
         // 逐项清空（不直接依赖 storage.js 的 clearAllData 以避免循环import）
         const keys = [
           'qa.examDate','qa.progress','qa.favorites','qa.notes','qa.wrong','qa.wrongStreak','qa.daily',
-          'qa.knowledgeMastery','qa.diagnosis','qa.settings','qa.wrongReason','qa.review','qa.examHistory','qa.trainingContext'
+          'qa.knowledgeMastery','qa.diagnosis','qa.settings','qa.wrongReason','qa.review','qa.examHistory',
+          'qa.trainingContext','qa.learnerProfile','qa.learningEvents'
         ];
         keys.forEach(k => localStorage.removeItem(k));
         alert('已清空本地数据。');
@@ -2928,8 +3393,12 @@ function renderOptionLabel(q, idx) {
   }
   if (typeof idx !== 'number' || !Array.isArray(q?.options) || idx < 0 || idx >= q.options.length) return '未作答';
   const txt = q.options[idx];
-  if (q.type === 'tf') return String(txt);
   return `${String.fromCharCode(65 + idx)}. ${txt}`;
+}
+
+function renderOptionKey(idx) {
+  if (typeof idx !== 'number' || idx < 0) return '-';
+  return String.fromCharCode(65 + idx);
 }
 
 function escapeHtml(s) {
@@ -3492,6 +3961,11 @@ function renderQuestionBank() {
 
   const all = bankFiltered();
   const total = all.length;
+  const startBtn = qs('#bank-start-filter');
+  if (startBtn) {
+    startBtn.innerHTML = `<i class="fa fa-play-circle mr-2"></i>AI 生成练习（${total}题）`;
+    startBtn.disabled = total === 0;
+  }
 
   // 视图切换
   if (bankState.view === 'knowledge') {
@@ -3606,11 +4080,11 @@ function renderQuestionBank() {
     next.addEventListener('click', () => { bankState.page = Math.min(pages, bankState.page + 1); renderQuestionBank(); });
   }
 
-  const startBtn = qs('#bank-start-filter');
-  if (startBtn && !startBtn.dataset.bound) {
-    startBtn.dataset.bound = '1';
-    startBtn.addEventListener('click', () => {
-      const list = bankFiltered().slice(0, 100);
+  const startBtn2 = qs('#bank-start-filter');
+  if (startBtn2 && !startBtn2.dataset.bound) {
+    startBtn2.dataset.bound = '1';
+    startBtn2.addEventListener('click', () => {
+      const list = bankFiltered();
       startPracticeWithList(list, '筛选练习');
     });
   }
@@ -3635,7 +4109,8 @@ const AUTH_KEYS = {
 
 const STUDENT_DATA_KEYS = [
   'qa.examDate','qa.progress','qa.favorites','qa.notes','qa.wrong','qa.wrongStreak','qa.daily',
-  'qa.knowledgeMastery','qa.diagnosis','qa.settings','qa.wrongReason','qa.review','qa.examHistory','qa.trainingContext'
+  'qa.knowledgeMastery','qa.diagnosis','qa.settings','qa.wrongReason','qa.review','qa.examHistory',
+  'qa.trainingContext','qa.learnerProfile','qa.learningEvents'
 ];
 
 let authState = {
@@ -3665,6 +4140,23 @@ function renderTrainingContext() {
   const text = `城市：${ctx.city} · 车型：${ctx.carType} · 科目：${ctx.subject}`;
   const brief = qs('#context-brief');
   if (brief) brief.textContent = text;
+  renderAIStatusPill();
+}
+
+function renderAIStatusPill() {
+  const el = qs('#ai-status-pill');
+  if (!el) return;
+  const profile = getLearnerProfile();
+  const total = Number(profile?.total || 0);
+  const enabled = total >= 20;
+  const text = enabled
+    ? `AI 模型：个性化推荐已启用（基于 ${total} 题）`
+    : `AI 模型：已启用，等待学习数据完善（${total} 题）`;
+  el.className = enabled
+    ? 'inline-flex items-center gap-1 text-[11px] mt-1.5 px-2 py-1 rounded-full bg-primary/10 text-primary'
+    : 'inline-flex items-center gap-1 text-[11px] mt-1.5 px-2 py-1 rounded-full bg-warning/10 text-warning';
+  const txt = el.querySelector('span');
+  if (txt) txt.textContent = text;
 }
 
 function openContextModal() {
