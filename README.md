@@ -22,6 +22,7 @@ python3 -m http.server 5173
 - `qa.favorites`：收藏题目 id 列表
 - `qa.notes`：题目笔记
 - `qa.wrong`：错题题目 id 列表
+- `qa.wrongStreak`：错题消除计数（同一题连续答对次数）
 - `qa.daily`：按天统计（done/correct）
 
 ## 如何清空本地数据
@@ -32,6 +33,7 @@ localStorage.removeItem('qa.progress');
 localStorage.removeItem('qa.favorites');
 localStorage.removeItem('qa.notes');
 localStorage.removeItem('qa.wrong');
+localStorage.removeItem('qa.wrongStreak');
 localStorage.removeItem('qa.daily');
 ```
 或在浏览器设置里清空站点数据。

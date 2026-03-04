@@ -7,6 +7,7 @@ export const LS_KEYS = {
   FAVORITES: 'qa.favorites',    // string[]
   NOTES: 'qa.notes',            // { [id]: string }
   WRONG: 'qa.wrong',            // string[]  (wrong question ids)
+  WRONG_STREAK: 'qa.wrongStreak',// { [id]: number } 连续答对次数
   DAILY: 'qa.daily'             // { byDate: { [YYYY-MM-DD]: { done:number, correct:number } } }
 };
 
@@ -58,10 +59,26 @@ export function addWrong(questionId) {
   return Array.from(list);
 }
 
+export function getWrongStreak() {
+  return safeJsonParse(localStorage.getItem(LS_KEYS.WRONG_STREAK), {});
+}
+
+export function setWrongStreak(map) {
+  localStorage.setItem(LS_KEYS.WRONG_STREAK, JSON.stringify(map || {}));
+}
+
 export function removeWrong(questionId) {
   const list = new Set(getWrongList());
   list.delete(questionId);
   setWrongList(Array.from(list));
+
+  // 同时清除 streak
+  const streak = getWrongStreak();
+  if (streak && Object.prototype.hasOwnProperty.call(streak, questionId)) {
+    delete streak[questionId];
+    setWrongStreak(streak);
+  }
+
   return Array.from(list);
 }
 
@@ -85,7 +102,7 @@ export function addDailyRecord(correct) {
   return daily;
 }
 
-export function upsertAnswer(questionId, selected, correct) {
+export function upsertAnswer(questionId, selected, correct, opts = {}) {
   const progress = getProgress();
   const existed = !!progress.answered?.[questionId];
   progress.answered = progress.answered || {};
@@ -96,7 +113,26 @@ export function upsertAnswer(questionId, selected, correct) {
   }
   setProgress(progress);
 
-  if (!correct) addWrong(questionId);
+  // 错题闭环：答错 -> 加入错题并 streak=0；答对 -> 若在错题本内则 streak+1，达到阈值自动移出
+  const threshold = Number(opts.wrongClearThreshold || 2);
+
+  if (!correct) {
+    addWrong(questionId);
+    const streak = getWrongStreak();
+    streak[questionId] = 0;
+    setWrongStreak(streak);
+  } else {
+    const wrongSet = new Set(getWrongList());
+    if (wrongSet.has(questionId)) {
+      const streak = getWrongStreak();
+      const next = (streak[questionId] || 0) + 1;
+      streak[questionId] = next;
+      setWrongStreak(streak);
+      if (next >= threshold) {
+        removeWrong(questionId);
+      }
+    }
+  }
 
   return progress;
 }

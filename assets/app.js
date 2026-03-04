@@ -156,9 +156,16 @@ function renderQuestion() {
     item.addEventListener('click', () => {
       if (locked) return;
       const correct = idx === q.answer;
-      upsertAnswer(q.id, idx, correct);
+      upsertAnswer(q.id, idx, correct, { wrongClearThreshold: 2 });
       renderQuestion();
       renderStats();
+      // 若在错题模式下答对后被自动移出，可能导致队列变化，这里轻量刷新错题本数据
+      if (practiceMode === 'wrong') {
+        const ids = getWrongList();
+        const map = new Map(QUESTIONS.map(q => [q.id, q]));
+        wrongQueue = ids.map(id => map.get(id)).filter(Boolean);
+        if (currentIndex >= wrongQueue.length) currentIndex = Math.max(0, wrongQueue.length - 1);
+      }
     });
 
     optWrap.appendChild(item);
@@ -308,6 +315,9 @@ function renderWrongbook() {
   const items = ids.map(id => map.get(id)).filter(Boolean);
 
   qs('#wrong-count').textContent = String(items.length);
+
+  const tip = qs('#wrong-tip');
+  if (tip) tip.textContent = '错题消除规则：同一题连续答对 2 次将自动移出错题本（答错会重置计数）。';
 
   if (!items.length) {
     wrap.innerHTML = '<p class="text-neutral">暂无错题。去练题页做题吧。</p>';
