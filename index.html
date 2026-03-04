@@ -313,6 +313,18 @@
                             <i class="fa fa-pencil w-5 text-center"></i>
                             <span>练题</span>
                         </div>
+                        <div class="nav-item" data-target="wrongbook">
+                            <i class="fa fa-exclamation-circle w-5 text-center"></i>
+                            <span>错题本</span>
+                        </div>
+                        <div class="nav-item" data-target="plan">
+                            <i class="fa fa-bullseye w-5 text-center"></i>
+                            <span>今日计划</span>
+                        </div>
+                        <div class="nav-item" data-target="question-bank">
+                            <i class="fa fa-th-list w-5 text-center"></i>
+                            <span>题库</span>
+                        </div>
                         <div class="nav-item" data-target="exam">
                             <i class="fa fa-pencil-square-o w-5 text-center"></i>
                             <span>模拟考试</span>
@@ -442,11 +454,11 @@
                         <div class="card">
                             <div class="flex items-center justify-between">
                                 <div>
-                                    <p class="text-neutral">模拟次数</p>
-                                    <h4 class="text-2xl font-bold mt-1">0</h4>
+                                    <p class="text-neutral">错题数</p>
+                                    <h4 class="text-2xl font-bold mt-1"><span id="stat-wrong">0</span></h4>
                                 </div>
                                 <div class="w-12 h-12 rounded-full bg-error/10 flex items-center justify-center">
-                                    <i class="fa fa-file-text-o text-error text-xl"></i>
+                                    <i class="fa fa-exclamation-triangle text-error text-xl"></i>
                                 </div>
                             </div>
                         </div>
@@ -728,6 +740,49 @@
                             <textarea id="q-note" class="w-full border border-gray-300 rounded-md px-4 py-3" rows="3" placeholder="写下你对这道题的理解/口诀/易错点（保存在本地浏览器）"></textarea>
                             <p class="text-xs text-neutral mt-2">提示：笔记、收藏、做题记录都保存在本地 localStorage。</p>
                         </div>
+                    </div>
+                </div>
+
+                <!-- 错题本 -->
+                <div id="wrongbook" class="page-content hidden">
+                    <div class="card mb-6">
+                        <div class="flex items-center justify-between gap-4">
+                            <div>
+                                <h3 class="text-xl font-bold">错题本</h3>
+                                <p class="text-neutral mt-1">累计错题：<span class="text-error font-medium" id="wrong-count">0</span> 题</p>
+                            </div>
+                            <div class="flex gap-2">
+                                <button class="btn btn-primary" id="btn-wrong-start"><i class="fa fa-play-circle mr-2"></i>错题重练</button>
+                            </div>
+                        </div>
+                        <div class="mt-6 space-y-3" id="wrong-list"></div>
+                    </div>
+                </div>
+
+                <!-- 今日计划 -->
+                <div id="plan" class="page-content hidden">
+                    <div class="card mb-6">
+                        <div class="flex items-center justify-between gap-4">
+                            <div>
+                                <h3 class="text-xl font-bold">今日计划</h3>
+                                <p class="text-neutral mt-1">根据考试日期与剩余题量生成今日目标，并统计今日完成情况。</p>
+                            </div>
+                            <div class="text-sm text-neutral">考试日期：<span class="font-medium" id="plan-exam-date">（从首页预约考试设置）</span></div>
+                        </div>
+                        <div class="mt-6" id="plan-box"></div>
+                    </div>
+                </div>
+
+                <!-- 题库 -->
+                <div id="question-bank" class="page-content hidden">
+                    <div class="card mb-6">
+                        <div class="flex items-center justify-between gap-4">
+                            <div>
+                                <h3 class="text-xl font-bold">题库</h3>
+                                <p class="text-neutral mt-1">查看所有题目状态（未做/已掌握/未掌握），并快速跳转做题。</p>
+                            </div>
+                        </div>
+                        <div class="mt-6 space-y-3" id="bank-list"></div>
                     </div>
                 </div>
 

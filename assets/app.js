@@ -7,7 +7,10 @@ import {
   isFavorite,
   toggleFavorite,
   getNote,
-  setNote
+  setNote,
+  getWrongList,
+  removeWrong,
+  getDaily
 } from './storage.js';
 
 let QUESTIONS = [];
@@ -33,13 +36,11 @@ function showPage(pageId, title) {
   qs(`.nav-item[data-target="${pageId}"]`)?.classList.add('active');
 }
 
-function renderPlanSummary() {
-  const examDate = getExamDate();
-  const progress = getProgress();
-  const total = QUESTIONS.length || 0;
-  const done = progress.doneCount || 0;
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
 
-  // 简单今日目标：默认50题；若剩余题数少于50则取剩余；若设置了考试日期，则按天数摊分（上限100，下限20）
+function calcDailyTarget(total, done, examDate) {
   let dailyTarget = 50;
   if (examDate) {
     const today = new Date();
@@ -51,40 +52,72 @@ function renderPlanSummary() {
       dailyTarget = Math.max(20, Math.min(100, dailyTarget));
     }
   }
+  return dailyTarget;
+}
 
-  const todayDone = Math.min(dailyTarget, 0); // 先不做按日统计（后续可加），这里展示“目标”即可
+function renderPlanSummary() {
+  const examDate = getExamDate();
+  const progress = getProgress();
+  const total = QUESTIONS.length || 0;
+  const done = progress.doneCount || 0;
+
+  const dailyTarget = calcDailyTarget(total, done, examDate);
+  const daily = getDaily();
+  const today = todayStr();
+  const todayRec = daily.byDate?.[today] || { done: 0, correct: 0 };
+  const todayDone = todayRec.done || 0;
+  const todayAcc = todayDone ? Math.round((todayRec.correct / todayDone) * 100) : 0;
 
   const planEl = qs('#plan-summary');
   if (!planEl) return;
+
+  const pct = Math.min(100, Math.round((todayDone / dailyTarget) * 100));
+
   planEl.innerHTML = `
     <div class="flex items-center justify-between">
       <div>
         <p class="text-neutral">今日目标</p>
-        <p class="text-2xl font-bold mt-1">${dailyTarget} 题</p>
-        <p class="text-sm text-neutral mt-1">总进度：${done}/${total}</p>
+        <p class="text-2xl font-bold mt-1">${todayDone}/${dailyTarget} 题</p>
+        <p class="text-sm text-neutral mt-1">今日正确率：${todayAcc}% · 总进度：${done}/${total}</p>
       </div>
       <div class="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
         <i class="fa fa-bullseye text-primary text-2xl"></i>
       </div>
     </div>
     <div class="mt-4">
-      <p class="text-sm text-neutral">建议：优先完成 ${dailyTarget} 题练习，并复盘解析与笔记。</p>
+      <div class="progress-bar">
+        <div class="progress-bar-fill" style="width: ${pct}%"></div>
+      </div>
+      <p class="text-sm text-neutral mt-2">建议：优先完成今日目标，并复盘解析与笔记。</p>
     </div>
   `;
 }
 
+let practiceMode = 'all'; // all | wrong
+let wrongQueue = [];
+
+function getCurrentQuestion() {
+  if (practiceMode === 'wrong') return wrongQueue[currentIndex];
+  return QUESTIONS[currentIndex];
+}
+
+function getCurrentTotal() {
+  return practiceMode === 'wrong' ? wrongQueue.length : QUESTIONS.length;
+}
+
 function renderQuestion() {
-  const q = QUESTIONS[currentIndex];
+  const q = getCurrentQuestion();
   if (!q) return;
 
   const progress = getProgress();
   const answered = progress.answered?.[q.id];
 
   qs('#q-index').textContent = String(currentIndex + 1);
-  qs('#q-total').textContent = String(QUESTIONS.length);
+  qs('#q-total').textContent = String(getCurrentTotal());
   qs('#q-id').textContent = q.id;
   qs('#q-stem').textContent = q.stem;
-  qs('#q-tags').innerHTML = (q.tags || []).map(t => `<span class="badge badge-warning">${t}</span>`).join('');
+  qs('#q-tags').innerHTML = (q.tags || []).map(t => `<span class="badge badge-warning">${t}</span>`).join('')
+    + (practiceMode === 'wrong' ? '<span class="badge badge-error">错题重练</span>' : '');
 
   // 收藏
   const favBtn = qs('#btn-fav');
@@ -151,7 +184,7 @@ function renderQuestion() {
 
   // buttons state
   qs('#btn-prev').disabled = currentIndex === 0;
-  qs('#btn-next').disabled = currentIndex === QUESTIONS.length - 1;
+  qs('#btn-next').disabled = currentIndex === getCurrentTotal() - 1;
 }
 
 function renderStats() {
@@ -164,6 +197,10 @@ function renderStats() {
   const correctCount = Object.values(progress.answered || {}).filter(a => a.correct).length;
   const acc = done ? Math.round((correctCount / done) * 100) : 0;
   qs('#stat-acc').textContent = acc + '%';
+
+  const wrongCount = (getWrongList() || []).length;
+  const wrongBadge = qs('#stat-wrong');
+  if (wrongBadge) wrongBadge.textContent = String(wrongCount);
 }
 
 function bindEvents() {
@@ -176,6 +213,9 @@ function bindEvents() {
         'diagnosis': '智能诊断',
         'learning': '个性学习',
         'practice': '练题',
+        'wrongbook': '错题本',
+        'plan': '今日计划',
+        'question-bank': '题库',
         'exam': '模拟考试',
         'wrong-questions': '错题管理',
         'crash-course': '考前冲刺',
@@ -184,6 +224,15 @@ function bindEvents() {
       showPage(target, titles[target] || '');
       if (target === 'practice') {
         renderQuestion();
+      }
+      if (target === 'wrongbook') {
+        renderWrongbook();
+      }
+      if (target === 'plan') {
+        renderPlanPage();
+      }
+      if (target === 'question-bank') {
+        renderQuestionBank();
       }
     });
   });
@@ -194,26 +243,35 @@ function bindEvents() {
     renderQuestion();
   });
   qs('#btn-next').addEventListener('click', () => {
-    if (currentIndex < QUESTIONS.length - 1) currentIndex += 1;
+    if (currentIndex < getCurrentTotal() - 1) currentIndex += 1;
     renderQuestion();
   });
   qs('#btn-fav').addEventListener('click', () => {
-    const q = QUESTIONS[currentIndex];
+    const q = getCurrentQuestion();
     toggleFavorite(q.id);
     renderQuestion();
   });
   qs('#q-note').addEventListener('input', (e) => {
-    const q = QUESTIONS[currentIndex];
+    const q = getCurrentQuestion();
     setNote(q.id, e.target.value);
   });
 
   // 从个性学习页/首页进入练题
   qsa('[data-go-practice="1"]').forEach(btn => {
     btn.addEventListener('click', () => {
+      practiceMode = 'all';
+      currentIndex = 0;
       showPage('practice', '练题');
       renderQuestion();
     });
   });
+
+  const wrongStart = qs('#btn-wrong-start');
+  if (wrongStart) {
+    wrongStart.addEventListener('click', () => {
+      startWrongPractice();
+    });
+  }
 
   // 同步考试日期：复用首页 date picker 的 confirm
   const confirm = qs('#confirm-date');
@@ -231,6 +289,144 @@ function bindEvents() {
     const saved = getExamDate();
     if (saved) input.value = saved;
   }
+}
+
+function startWrongPractice() {
+  const ids = getWrongList();
+  const map = new Map(QUESTIONS.map(q => [q.id, q]));
+  wrongQueue = ids.map(id => map.get(id)).filter(Boolean);
+  practiceMode = 'wrong';
+  currentIndex = 0;
+  showPage('practice', '错题重练');
+  renderQuestion();
+}
+
+function renderWrongbook() {
+  const wrap = qs('#wrong-list');
+  const ids = getWrongList();
+  const map = new Map(QUESTIONS.map(q => [q.id, q]));
+  const items = ids.map(id => map.get(id)).filter(Boolean);
+
+  qs('#wrong-count').textContent = String(items.length);
+
+  if (!items.length) {
+    wrap.innerHTML = '<p class="text-neutral">暂无错题。去练题页做题吧。</p>';
+    return;
+  }
+
+  wrap.innerHTML = items.map(q => `
+    <div class="border border-gray-200 rounded-lg p-4 hover:border-primary transition-all">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <p class="text-sm text-neutral">${q.id} · ${(q.type === 'tf' ? '判断' : '单选')} · ${(q.tags || []).join(' / ')}</p>
+          <p class="font-medium mt-1">${q.stem}</p>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-outline" data-wrong-practice="${q.id}">去重练</button>
+          <button class="btn btn-secondary" data-wrong-remove="${q.id}">移除</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  qsa('[data-wrong-practice]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-wrong-practice');
+      // 只对这一题启动错题队列
+      const map = new Map(QUESTIONS.map(q => [q.id, q]));
+      wrongQueue = [map.get(id)].filter(Boolean);
+      practiceMode = 'wrong';
+      currentIndex = 0;
+      showPage('practice', '错题重练');
+      renderQuestion();
+    });
+  });
+
+  qsa('[data-wrong-remove]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-wrong-remove');
+      removeWrong(id);
+      renderWrongbook();
+      renderStats();
+    });
+  });
+}
+
+function renderPlanPage() {
+  const examDate = getExamDate();
+  const examEl = qs('#plan-exam-date');
+  if (examEl) examEl.textContent = examDate || '未设置';
+  const progress = getProgress();
+  const total = QUESTIONS.length;
+  const done = progress.doneCount || 0;
+  const dailyTarget = calcDailyTarget(total, done, examDate);
+
+  const daily = getDaily();
+  const today = todayStr();
+  const todayRec = daily.byDate?.[today] || { done: 0, correct: 0 };
+  const todayDone = todayRec.done || 0;
+  const todayAcc = todayDone ? Math.round((todayRec.correct / todayDone) * 100) : 0;
+
+  const remain = Math.max(total - done, 0);
+  const pct = dailyTarget ? Math.min(100, Math.round((todayDone / dailyTarget) * 100)) : 0;
+
+  const box = qs('#plan-box');
+  box.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="card">
+        <p class="text-neutral">今日完成</p>
+        <p class="text-2xl font-bold mt-1">${todayDone}/${dailyTarget}</p>
+        <div class="progress-bar mt-3"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+      </div>
+      <div class="card">
+        <p class="text-neutral">今日正确率</p>
+        <p class="text-2xl font-bold mt-1">${todayAcc}%</p>
+        <p class="text-sm text-neutral mt-1">（今日正确 ${todayRec.correct} 题）</p>
+      </div>
+      <div class="card">
+        <p class="text-neutral">剩余题量</p>
+        <p class="text-2xl font-bold mt-1">${remain}</p>
+        <p class="text-sm text-neutral mt-1">总进度：${done}/${total}</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderQuestionBank() {
+  const wrap = qs('#bank-list');
+  const progress = getProgress();
+  const fav = new Set(JSON.parse(localStorage.getItem('qa.favorites') || '[]'));
+
+  wrap.innerHTML = QUESTIONS.map((q, idx) => {
+    const a = progress.answered?.[q.id];
+    const status = a ? (a.correct ? '<span class="badge badge-success">已掌握</span>' : '<span class="badge badge-error">未掌握</span>') : '<span class="badge">未做</span>';
+    const star = fav.has(q.id) ? '<i class="fa fa-star text-warning"></i>' : '<i class="fa fa-star-o text-neutral"></i>';
+    return `
+      <div class="border border-gray-200 rounded-lg p-3 hover:border-primary transition-all">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-sm text-neutral">#${idx + 1} · ${q.id} · ${(q.type === 'tf' ? '判断' : '单选')} · ${(q.tags || []).join(' / ')}</p>
+            <p class="font-medium mt-1">${q.stem}</p>
+            <div class="mt-2 flex items-center gap-2">${status} <span class="text-xs">${star}</span></div>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn btn-outline" data-bank-go="${q.id}">去做题</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  qsa('[data-bank-go]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-bank-go');
+      const idx = QUESTIONS.findIndex(x => x.id === id);
+      practiceMode = 'all';
+      currentIndex = Math.max(0, idx);
+      showPage('practice', '练题');
+      renderQuestion();
+    });
+  });
 }
 
 async function main() {
