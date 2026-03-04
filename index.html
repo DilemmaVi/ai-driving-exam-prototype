@@ -524,86 +524,17 @@
                     </div>
                 </div>
                 
-                <!-- 智能诊断 -->
+                <!-- 智能诊断（改造：50题诊断 + 报告） -->
                 <div id="diagnosis" class="page-content hidden">
                     <div class="card mb-6">
-                        <h3 class="text-xl font-bold mb-4">智能诊断</h3>
-                        <p class="text-neutral mb-6">通过50道代表性题目，快速评估您的知识水平，为您定制个性化学习方案。</p>
-                        
-                        <div class="flex justify-center mb-6">
-                            <button class="btn btn-primary text-lg px-8 py-3">
-                                <i class="fa fa-play-circle mr-2"></i>开始诊断测试
-                            </button>
-                        </div>
-                        
-                        <div class="border-t border-gray-200 pt-6">
-                            <h4 class="font-bold mb-4">诊断报告</h4>
-                            
-                            <div class="mb-6">
-                                <div class="flex justify-between mb-2">
-                                    <span class="font-medium">总分：68分</span>
-                                    <span>68%</span>
-                                </div>
-                                <div class="progress-bar">
-                                    <div class="progress-bar-fill" style="width: 68%"></div>
-                                </div>
-                            </div>
-                            
-                            <div class="mb-6">
-                                <h5 class="font-medium mb-3">知识掌握度分析</h5>
-                                <div class="space-y-3">
-                                    <div>
-                                        <div class="flex justify-between mb-1">
-                                            <span>交通法规</span>
-                                            <span>78%</span>
-                                        </div>
-                                        <div class="progress-bar">
-                                            <div class="progress-bar-fill" style="width: 78%"></div>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between mb-1">
-                                            <span>安全文明</span>
-                                            <span>45% <span class="text-warning">⚠️ 薄弱</span></span>
-                                        </div>
-                                        <div class="progress-bar">
-                                            <div class="progress-bar-fill" style="width: 45%"></div>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between mb-1">
-                                            <span>标志标线</span>
-                                            <span>85%</span>
-                                        </div>
-                                        <div class="progress-bar">
-                                            <div class="progress-bar-fill" style="width: 85%"></div>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between mb-1">
-                                            <span>紧急情况</span>
-                                            <span>40% <span class="text-warning">⚠️ 薄弱</span></span>
-                                        </div>
-                                        <div class="progress-bar">
-                                            <div class="progress-bar-fill" style="width: 40%"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="mb-6">
-                                <h5 class="font-medium mb-2">AI建议</h5>
-                                <div class="bg-gray-50 p-4 rounded-lg">
-                                    <p>您的交通法规基础较好，但安全文明和紧急情况处理需要重点加强。建议先学习500道精选题目，重点关注错题涉及的知识点。</p>
-                                </div>
-                            </div>
-                            
-                            <div class="flex gap-3">
-                                <button class="btn btn-primary">开始个性化学习</button>
-                                <button class="btn btn-outline">查看详细分析</button>
-                            </div>
-                        </div>
+                        <h3 class="text-xl font-bold mb-2">智能诊断</h3>
+                        <p class="text-neutral">完成50道诊断题，系统将输出薄弱知识点TOP、预测得分与提分建议，并可一键进入智能加速练习。</p>
                     </div>
+
+                    <div class="card mb-6" id="diagnosis-box"></div>
+
+                    <div id="diagnosis-quiz" class="hidden"></div>
+                    <div id="diagnosis-report" class="hidden"></div>
                 </div>
                 
                 <!-- 个性学习 -->

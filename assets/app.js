@@ -12,7 +12,10 @@ import {
   removeWrong,
   getDaily,
   updateKnowledgeMastery,
-  getKnowledgeMastery
+  getKnowledgeMastery,
+  getDiagnosis,
+  setDiagnosis,
+  clearDiagnosis
 } from './storage.js';
 
 let QUESTIONS = [];
@@ -36,6 +39,11 @@ function showPage(pageId, title) {
   if (title) qs('#page-title').textContent = title;
   qsa('.nav-item').forEach(n => n.classList.remove('active'));
   qs(`.nav-item[data-target="${pageId}"]`)?.classList.add('active');
+
+  // 进入诊断页时刷新诊断状态
+  if (pageId === 'diagnosis') {
+    renderDiagnosisHome();
+  }
 }
 
 function todayStr() {
@@ -122,31 +130,30 @@ function getCurrentTotal() {
   return practiceMode === 'wrong' ? wrongQueue.length : QUESTIONS.length;
 }
 
+function smartScoreQuestion(q, km, progress, now) {
+  const kid = q.knowledgeId || 'law.basic';
+  const m = km[kid]?.mastery ?? 0.5;
+  const freq = Number(q.frequency || 3);
+  const lastTs = km[kid]?.lastTs || 0;
+  const days = lastTs ? (now - lastTs) / (1000 * 3600 * 24) : 999;
+  const recencyBoost = Math.min(1.3, 0.8 + Math.min(7, days) / 10); // 0.8~1.3
+  const base = (1 - m) * (0.6 + 0.1 * freq) * recencyBoost;
+  const donePenalty = progress.answered?.[q.id] ? 0.85 : 1.0;
+  return base * donePenalty;
+}
+
 function pickSmartIndex() {
   const progress = getProgress();
   const km = getKnowledgeMastery();
   const now = Date.now();
 
-  // 只从未做过的题里挑（先加速覆盖）；若都做过则允许重做掌握度最低的知识点题
   const unanswered = QUESTIONS.filter(q => !progress.answered?.[q.id]);
   const pool = unanswered.length ? unanswered : QUESTIONS;
-
-  function score(q) {
-    const kid = q.knowledgeId || 'law.basic';
-    const m = km[kid]?.mastery ?? 0.5;
-    const freq = Number(q.frequency || 3);
-    const lastTs = km[kid]?.lastTs || 0;
-    const days = lastTs ? (now - lastTs) / (1000 * 3600 * 24) : 999;
-    const recencyBoost = Math.min(1.3, 0.8 + Math.min(7, days) / 10); // 0.8~1.3
-    const base = (1 - m) * (0.6 + 0.1 * freq) * recencyBoost;
-    const donePenalty = progress.answered?.[q.id] ? 0.85 : 1.0;
-    return base * donePenalty;
-  }
 
   let best = pool[0];
   let bestScore = -Infinity;
   for (const q of pool) {
-    const s = score(q);
+    const s = smartScoreQuestion(q, km, progress, now);
     if (s > bestScore) {
       bestScore = s;
       best = q;
@@ -407,6 +414,326 @@ function startWrongPractice() {
   currentIndex = 0;
   showPage('practice', '错题重练');
   renderQuestion();
+}
+
+// ======================
+// 智能诊断（50题）
+// ======================
+function buildDiagnosisQueue() {
+  // 半自适应：先覆盖知识点，再偏薄弱高频
+  const km = getKnowledgeMastery();
+  const now = Date.now();
+  const progress = getProgress();
+
+  // 1) 覆盖：每个知识点尽量选1题（共12题，若题库不足则跳过）
+  const byK = {};
+  for (const q of QUESTIONS) {
+    const kid = q.knowledgeId || 'law.basic';
+    (byK[kid] ||= []).push(q);
+  }
+
+  const cover = [];
+  for (const kid of Object.keys(KNOWLEDGE_DICT)) {
+    const arr = byK[kid] || [];
+    if (!arr.length) continue;
+    // 优先未做过的
+    const pick = arr.find(q => !progress.answered?.[q.id]) || arr[0];
+    cover.push(pick);
+  }
+
+  // 2) 剩余：按智能得分排序，避免重复，填满50
+  const chosen = new Set(cover.map(q => q.id));
+  const rest = QUESTIONS
+    .filter(q => !chosen.has(q.id))
+    .map(q => ({ q, s: smartScoreQuestion(q, km, progress, now) }))
+    .sort((a, b) => b.s - a.s)
+    .map(x => x.q);
+
+  const queue = [...cover, ...rest].slice(0, 50).map(q => q.id);
+
+  // 若题库不足50，允许重复（这里简单补齐：循环填充 rest）
+  let i = 0;
+  while (queue.length < 50 && rest.length) {
+    queue.push(rest[i % rest.length].id);
+    i += 1;
+  }
+
+  return queue;
+}
+
+function startDiagnosis(reset = false) {
+  if (reset) clearDiagnosis();
+  let d = getDiagnosis();
+
+  if (!d.queue?.length) {
+    const queue = buildDiagnosisQueue();
+    d = {
+      status: 'running',
+      queue,
+      cursor: 0,
+      answers: {},
+      startedAt: Date.now(),
+      finishedAt: 0
+    };
+  } else {
+    d.status = 'running';
+  }
+
+  setDiagnosis(d);
+  renderDiagnosisQuiz();
+}
+
+function finishDiagnosis() {
+  const d = getDiagnosis();
+  d.status = 'done';
+  d.finishedAt = Date.now();
+  setDiagnosis(d);
+  renderDiagnosisReport();
+}
+
+function diagnosisCurrentQuestion() {
+  const d = getDiagnosis();
+  const id = d.queue?.[d.cursor];
+  return QUESTIONS.find(q => q.id === id);
+}
+
+function renderDiagnosisHome() {
+  const d = getDiagnosis();
+  const box = qs('#diagnosis-box');
+  if (!box) return;
+
+  const total = (d.queue && d.queue.length) ? d.queue.length : 50;
+  const cur = d.cursor || 0;
+
+  let statusText = '未开始';
+  if (d.status === 'running') statusText = `进行中：${cur}/${total}`;
+  if (d.status === 'done') statusText = '已完成';
+
+  const examDate = getExamDate();
+
+  box.innerHTML = `
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div>
+        <h4 class="text-lg font-bold">50题智能诊断</h4>
+        <p class="text-neutral mt-1">状态：<span class="font-medium">${statusText}</span> · 考试日期：<span class="font-medium">${examDate || '未设置'}</span></p>
+        <p class="text-sm text-neutral mt-2">完成后将输出薄弱知识点TOP、提分清单，并可一键进入智能加速练习。</p>
+      </div>
+      <div class="flex gap-2">
+        ${d.status === 'running' ? '<button class="btn btn-primary" id="btn-diag-continue">继续诊断</button>' : '<button class="btn btn-primary" id="btn-diag-start">开始诊断</button>'}
+        ${d.status !== 'idle' ? '<button class="btn btn-outline" id="btn-diag-reset">重新开始</button>' : ''}
+        ${d.status === 'done' ? '<button class="btn btn-secondary" id="btn-diag-report">查看报告</button>' : ''}
+      </div>
+    </div>
+  `;
+
+  qs('#btn-diag-start')?.addEventListener('click', () => startDiagnosis(true));
+  qs('#btn-diag-continue')?.addEventListener('click', () => startDiagnosis(false));
+  qs('#btn-diag-reset')?.addEventListener('click', () => startDiagnosis(true));
+  qs('#btn-diag-report')?.addEventListener('click', () => renderDiagnosisReport());
+}
+
+function renderDiagnosisQuiz() {
+  showPage('diagnosis', '智能诊断');
+
+  const d = getDiagnosis();
+  const q = diagnosisCurrentQuestion();
+  const area = qs('#diagnosis-quiz');
+  const report = qs('#diagnosis-report');
+  const box = qs('#diagnosis-box');
+
+  if (report) report.classList.add('hidden');
+  if (area) area.classList.remove('hidden');
+
+  const total = d.queue.length || 50;
+  const idx = (d.cursor || 0) + 1;
+
+  if (!q) {
+    finishDiagnosis();
+    return;
+  }
+
+  const kName = KNOWLEDGE_DICT[q.knowledgeId] || '未标注知识点';
+
+  area.innerHTML = `
+    <div class="card mb-6">
+      <div class="flex items-center justify-between gap-4">
+        <div>
+          <h4 class="text-lg font-bold">诊断中（${idx}/${total}）</h4>
+          <p class="text-sm text-neutral mt-1">当前知识点：<span class="font-medium">${kName}</span> · 题目ID：${q.id}</p>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary" id="btn-diag-exit">退出（可继续）</button>
+        </div>
+      </div>
+      <div class="mt-4">
+        <div class="progress-bar"><div class="progress-bar-fill" style="width:${Math.round((idx/total)*100)}%"></div></div>
+      </div>
+
+      <div class="mt-6">
+        <p class="text-lg font-medium">${q.stem}</p>
+      </div>
+
+      <div class="mt-4 space-y-3" id="diag-options"></div>
+
+      <div class="mt-4 hidden" id="diag-analysis">
+        <div class="p-4 rounded-lg border border-gray-200 bg-gray-50">
+          <div class="mb-2" id="diag-result"></div>
+          <p class="text-sm"><strong>解析：</strong><span id="diag-analysis-text"></span></p>
+          <div class="flex justify-end mt-4">
+            <button class="btn btn-primary" id="btn-diag-next">下一题</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  qs('#btn-diag-exit')?.addEventListener('click', () => {
+    // 回到诊断首页状态
+    area.classList.add('hidden');
+    renderDiagnosisHome();
+  });
+
+  const answered = d.answers?.[q.id];
+  const locked = typeof answered?.selected === 'number';
+
+  const optWrap = qs('#diag-options');
+  optWrap.innerHTML = '';
+  q.options.forEach((text, oi) => {
+    const item = document.createElement('div');
+    item.className = 'question-option';
+
+    if (locked) {
+      if (oi === q.answer) item.classList.add('correct');
+      if (oi === answered.selected && oi !== q.answer) item.classList.add('incorrect');
+    }
+
+    item.innerHTML = `
+      <input type="radio" name="diagopt" ${locked ? 'disabled' : ''} ${answered?.selected === oi ? 'checked' : ''} />
+      <span>${q.type === 'tf' ? '' : String.fromCharCode(65 + oi) + '. '}${text}</span>
+    `;
+
+    item.addEventListener('click', () => {
+      if (locked) return;
+      const correct = oi === q.answer;
+      d.answers = d.answers || {};
+      d.answers[q.id] = { selected: oi, correct, ts: Date.now() };
+      setDiagnosis(d);
+
+      // 诊断也更新知识点掌握度（同一套模型）
+      updateKnowledgeMastery(q.knowledgeId, correct, { frequency: q.frequency, difficulty: q.difficulty });
+
+      // 显示解析并等待“下一题”
+      const box = qs('#diag-analysis');
+      box.classList.remove('hidden');
+      qs('#diag-analysis-text').textContent = q.analysis || '暂无解析';
+      qs('#diag-result').innerHTML = correct
+        ? '<span class="text-success font-medium"><i class="fa fa-check-circle mr-2"></i>回答正确</span>'
+        : '<span class="text-error font-medium"><i class="fa fa-times-circle mr-2"></i>回答错误</span>';
+    });
+
+    optWrap.appendChild(item);
+  });
+
+  qs('#btn-diag-next')?.addEventListener('click', () => {
+    const d2 = getDiagnosis();
+    d2.cursor = (d2.cursor || 0) + 1;
+    setDiagnosis(d2);
+    // 下一题
+    renderDiagnosisQuiz();
+  });
+}
+
+function calcPredictedScoreFromMastery() {
+  // 简单近似：按知识点掌握度平均 * 100
+  const km = getKnowledgeMastery();
+  const kids = Object.keys(KNOWLEDGE_DICT);
+  let sum = 0;
+  let cnt = 0;
+  for (const k of kids) {
+    const m = km[k]?.mastery;
+    if (typeof m === 'number') {
+      sum += m;
+      cnt += 1;
+    }
+  }
+  const avg = cnt ? (sum / cnt) : 0.5;
+  return Math.round(avg * 100);
+}
+
+function renderDiagnosisReport() {
+  showPage('diagnosis', '智能诊断');
+
+  const area = qs('#diagnosis-quiz');
+  const report = qs('#diagnosis-report');
+  if (area) area.classList.add('hidden');
+  if (report) report.classList.remove('hidden');
+
+  const score = calcPredictedScoreFromMastery();
+  const km = getKnowledgeMastery();
+
+  const rows = Object.keys(KNOWLEDGE_DICT).map(k => {
+    const m = km[k]?.mastery ?? 0.5;
+    return { k, name: KNOWLEDGE_DICT[k], mastery: m };
+  }).sort((a,b) => a.mastery - b.mastery);
+
+  const topWeak = rows.slice(0, 10);
+
+  report.innerHTML = `
+    <div class="card mb-6">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h4 class="text-lg font-bold">诊断报告</h4>
+          <p class="text-neutral mt-1">预测得分（近似）：<span class="text-primary font-bold text-xl">${score}</span> 分</p>
+          <p class="text-sm text-neutral mt-2">提示：这是根据“知识点掌握度”计算的近似值，用于指导刷题优先级。</p>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-primary" id="btn-go-smart">一键进入智能加速练习</button>
+          <button class="btn btn-outline" id="btn-diag-redo">重新诊断</button>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h5 class="font-bold mb-3">薄弱知识点 TOP10</h5>
+        <div class="space-y-3">
+          ${topWeak.map(r => {
+            const pct = Math.round(r.mastery * 100);
+            return `
+              <div class="border border-gray-200 rounded-lg p-4">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <p class="font-medium">${r.name}</p>
+                    <p class="text-sm text-neutral mt-1">掌握度：${pct}%</p>
+                  </div>
+                  <div class="w-40">
+                    <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+
+  qs('#btn-go-smart')?.addEventListener('click', () => {
+    // 跳转练题并进入智能模式
+    practiceMode = 'smart';
+    currentIndex = pickSmartIndex();
+    showPage('practice', '练题');
+    renderQuestion();
+  });
+  qs('#btn-diag-redo')?.addEventListener('click', () => {
+    startDiagnosis(true);
+  });
+
+  // 标记 done
+  const d = getDiagnosis();
+  if (d.status !== 'done') {
+    d.status = 'done';
+    d.finishedAt = Date.now();
+    setDiagnosis(d);
+  }
 }
 
 function renderWrongbook() {

@@ -9,7 +9,8 @@ export const LS_KEYS = {
   WRONG: 'qa.wrong',            // string[]  (wrong question ids)
   WRONG_STREAK: 'qa.wrongStreak',// { [id]: number } 连续答对次数
   DAILY: 'qa.daily',            // { byDate: { [YYYY-MM-DD]: { done:number, correct:number } } }
-  KNOWLEDGE: 'qa.knowledgeMastery' // { [knowledgeId]: { mastery:number, attempts:number, correct:number, lastTs:number } }
+  KNOWLEDGE: 'qa.knowledgeMastery', // { [knowledgeId]: { mastery:number, attempts:number, correct:number, lastTs:number } }
+  DIAGNOSIS: 'qa.diagnosis' // { status, queue, cursor, answers, startedAt, finishedAt }
 };
 
 function safeJsonParse(raw, fallback) {
@@ -206,6 +207,25 @@ export function updateKnowledgeMastery(knowledgeId, correct, meta = {}) {
   km[knowledgeId] = cur;
   setKnowledgeMastery(km);
   return km;
+}
+
+export function getDiagnosis() {
+  return safeJsonParse(localStorage.getItem(LS_KEYS.DIAGNOSIS), {
+    status: 'idle',
+    queue: [],
+    cursor: 0,
+    answers: {},
+    startedAt: 0,
+    finishedAt: 0
+  });
+}
+
+export function setDiagnosis(d) {
+  localStorage.setItem(LS_KEYS.DIAGNOSIS, JSON.stringify(d || {}));
+}
+
+export function clearDiagnosis() {
+  localStorage.removeItem(LS_KEYS.DIAGNOSIS);
 }
 
 export function clearAllData() {
