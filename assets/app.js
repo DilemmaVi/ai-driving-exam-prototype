@@ -945,7 +945,27 @@ function bindEvents() {
       if (target === 'help') {
         renderHelpTOC();
       }
+      if (target === 'crash-course') {
+        renderCrashCourse();
+      }
+      if (target === 'report') {
+        renderReportPage();
+      }
     });
+  });
+
+  qs('#btn-switch-student')?.addEventListener('click', () => {
+    openAuthGate('student');
+  });
+  qs('#btn-logout-org')?.addEventListener('click', () => {
+    logoutOrg();
+  });
+  qs('#top-student-select')?.addEventListener('change', (e) => {
+    const sid = String(e.target?.value || '');
+    if (sid) enterStudent(sid);
+  });
+  qs('#btn-student-manage')?.addEventListener('click', () => {
+    openStudentManageModal();
   });
 
   // 练题按钮
@@ -1182,16 +1202,11 @@ function bindEvents() {
     });
   });
 
-  // 模拟考试入口（先复用诊断/练题能力）
+  // 模拟考试入口
   qsa('[data-go-exam]').forEach(btn => {
     btn.addEventListener('click', () => {
       const mode = btn.getAttribute('data-go-exam');
-      showPage('diagnosis', '智能诊断');
-      if (mode === 'quick') {
-        startDiagnosis(true, { examType: 'quick', total: QUICK_TOTAL, durationSec: QUICK_DURATION_SEC });
-      } else {
-        startDiagnosis(true, { examType: 'standard', total: DIAG_TOTAL, durationSec: DIAG_DURATION_SEC });
-      }
+      startMockExam(mode === 'quick' ? 'quick' : 'standard');
     });
   });
 
@@ -1227,11 +1242,17 @@ function bindEvents() {
   // 考前冲刺入口：先跳转到智能加速（后续可做冲刺策略）
   qsa('[data-go-crash]').forEach(btn => {
     btn.addEventListener('click', () => {
-      practiceMode = 'smart';
-      smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
-      currentIndex = pickSmartIndex();
-      showPage('practice', '练题');
-      renderQuestion();
+      const mode = btn.getAttribute('data-go-crash');
+      if (mode === '1d') {
+        startMockExam('quick');
+        return;
+      }
+      const weak = getCrashWeakKnowledge(1)[0];
+      if (weak) {
+        startKnowledgePractice(weak.kid, 30);
+        return;
+      }
+      startSmartPractice();
     });
   });
 
@@ -1286,6 +1307,744 @@ function startReviewPractice() {
   currentIndex = 0;
   showPage('practice', '到期复习');
   renderQuestion();
+}
+
+function startSmartPractice() {
+  practiceMode = 'smart';
+  smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
+  currentIndex = pickSmartIndex();
+  showPage('practice', '练题');
+  renderQuestion();
+}
+
+function getCrashWeakKnowledge(limit = 3) {
+  const km = getKnowledgeMastery();
+  const list = Object.keys(KNOWLEDGE_DICT).map(kid => {
+    const rec = km[kid] || {};
+    const attempts = Number(rec.attempts || 0);
+    const mastery = typeof rec.mastery === 'number' ? rec.mastery : 0.5;
+    return { kid, attempts, mastery };
+  });
+
+  list.sort((a, b) => {
+    if (a.mastery !== b.mastery) return a.mastery - b.mastery;
+    return a.attempts - b.attempts;
+  });
+  return list.slice(0, limit);
+}
+
+function getCrashStage(examDate) {
+  if (!examDate) return { key: 'unset', label: '未设置考试日期', tip: '建议先在首页设置考试日期，系统会自动按倒计时安排冲刺任务。' };
+  const daysLeft = getDaysLeft(examDate);
+  if (daysLeft <= 1) return { key: 'd1', label: '考前1天强化', tip: '减少新题，优先错题与快速模考，稳定到 90+。' };
+  if (daysLeft <= 3) return { key: 'd3', label: '考前3天冲刺', tip: '高频薄弱专项 + 到期复习 + 每日1次模拟考试。' };
+  if (daysLeft <= 7) return { key: 'd7', label: '考前7天提分', tip: '平衡新题与复习，先补最薄弱的2个知识点。' };
+  return { key: 'normal', label: '常规备考期', tip: '距离考试较远，建议按今日计划稳步推进。' };
+}
+
+function runCrashAction(action, extra = {}) {
+  if (action === 'wrong') {
+    if (!(getWrongList() || []).length) {
+      alert('当前没有错题，已为你切换到智能加速练习。');
+      startSmartPractice();
+      return;
+    }
+    startWrongPractice();
+    return;
+  }
+  if (action === 'review') {
+    startReviewPractice();
+    return;
+  }
+  if (action === 'weak') {
+    const kid = extra.kid || getCrashWeakKnowledge(1)[0]?.kid;
+    if (!kid) {
+      alert('暂无可用弱项数据，已为你切换到智能加速练习。');
+      startSmartPractice();
+      return;
+    }
+    startKnowledgePractice(kid, 20);
+    return;
+  }
+  if (action === 'exam-standard') {
+    startMockExam('standard');
+    return;
+  }
+  if (action === 'exam-quick') {
+    startMockExam('quick');
+    return;
+  }
+  startSmartPractice();
+}
+
+function renderCrashCourse() {
+  const box = qs('#crash-course-box');
+  if (!box) return;
+
+  const examDate = getExamDate();
+  const daysLeft = getDaysLeft(examDate);
+  const stage = getCrashStage(examDate);
+  const wrongCount = (getWrongList() || []).length;
+  const dueReview = getDueReviewCount();
+  const recent = getRecentAccuracy(3);
+  const weak = getCrashWeakKnowledge(3);
+  const topWeak = weak[0];
+  const weakName = topWeak ? (KNOWLEDGE_DICT[topWeak.kid] || topWeak.kid) : '暂无';
+  const latestExam = getExamHistory()
+    .slice()
+    .sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0))[0];
+  const latestScoreText = latestExam ? `${latestExam.score}分（${latestExam.examType === 'quick' ? '快速测试' : '标准考试'}）` : '暂无';
+  const examAction = (!examDate || daysLeft > 1) ? 'exam-standard' : 'exam-quick';
+  const examActionText = examAction === 'exam-quick' ? '开始20分钟快速测试' : '开始45分钟标准模拟';
+
+  const tasks = [
+    {
+      title: '错题速刷',
+      hint: `当前错题 ${wrongCount} 题，优先清理易错陷阱题`,
+      action: 'wrong',
+      cta: wrongCount ? '开始错题冲刺' : '无错题，转智能加速'
+    },
+    {
+      title: '到期复习',
+      hint: `当前到期复习 ${dueReview} 题，优先完成以防遗忘`,
+      action: 'review',
+      cta: '开始到期复习'
+    },
+    {
+      title: '弱项专项',
+      hint: `当前最弱：${weakName}`,
+      action: 'weak',
+      cta: '开始20题专项',
+      kid: topWeak?.kid || ''
+    },
+    {
+      title: '模拟实战',
+      hint: `最近一次成绩：${latestScoreText}`,
+      action: examAction,
+      cta: examActionText
+    }
+  ];
+
+  box.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div class="card">
+        <p class="text-neutral">冲刺阶段</p>
+        <p class="text-xl font-bold mt-1">${stage.label}</p>
+        <p class="text-sm text-neutral mt-1">${stage.tip}</p>
+      </div>
+      <div class="card">
+        <p class="text-neutral">考试倒计时</p>
+        <p class="text-2xl font-bold mt-1">${examDate ? `${daysLeft}天` : '未设置'}</p>
+        <p class="text-sm text-neutral mt-1">考试日期：${examDate || '请先在首页预约考试'}</p>
+      </div>
+      <div class="card">
+        <p class="text-neutral">近3天正确率</p>
+        <p class="text-2xl font-bold mt-1">${recent.acc}%</p>
+        <p class="text-sm text-neutral mt-1">共练习 ${recent.done} 题</p>
+      </div>
+      <div class="card">
+        <p class="text-neutral">冲刺重点</p>
+        <p class="text-2xl font-bold mt-1">${weakName}</p>
+        <p class="text-sm text-neutral mt-1">错题 ${wrongCount} · 到期复习 ${dueReview}</p>
+      </div>
+    </div>
+
+    <div class="card mt-4">
+      <h4 class="font-bold mb-3">今日冲刺任务（按优先级）</h4>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        ${tasks.map((t, i) => `
+          <div class="border border-gray-200 rounded-lg p-4">
+            <p class="text-sm text-neutral">任务 ${i + 1}</p>
+            <h5 class="font-bold mt-1">${t.title}</h5>
+            <p class="text-sm text-neutral mt-2">${t.hint}</p>
+            <button
+              class="btn btn-primary mt-3 w-full"
+              data-crash-action="${t.action}"
+              ${t.kid ? `data-crash-kid="${t.kid}"` : ''}
+            >${t.cta}</button>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="card mt-4">
+      <h4 class="font-bold mb-3">薄弱知识点（优先修复）</h4>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        ${weak.map(x => `
+          <div class="border border-gray-200 rounded-lg p-4">
+            <p class="font-medium">${KNOWLEDGE_DICT[x.kid] || x.kid}</p>
+            <p class="text-sm text-neutral mt-1">掌握度：${Math.round(x.mastery * 100)}% · 作答：${x.attempts} 题</p>
+            <button class="btn btn-outline w-full mt-3" data-crash-action="weak" data-crash-kid="${x.kid}">开始专项20题</button>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  qsa('[data-crash-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.getAttribute('data-crash-action') || '';
+      const kid = btn.getAttribute('data-crash-kid') || '';
+      runCrashAction(action, { kid });
+    });
+  });
+}
+
+function getDailySeries(lastDays = 7) {
+  const daily = getDaily();
+  const byDate = daily.byDate || {};
+  const t = todayStr();
+  const arr = [];
+  for (let i = lastDays - 1; i >= 0; i -= 1) {
+    const d = addDays(t, -i);
+    const rec = byDate[d] || { done: 0, correct: 0 };
+    const done = Number(rec.done || 0);
+    const correct = Number(rec.correct || 0);
+    arr.push({
+      date: d,
+      done,
+      correct,
+      acc: done ? Math.round((correct / done) * 100) : 0
+    });
+  }
+  return arr;
+}
+
+function getLearningStreak() {
+  const daily = getDaily();
+  const byDate = daily.byDate || {};
+  let streak = 0;
+  const t = todayStr();
+  for (let i = 0; i < 365; i += 1) {
+    const d = addDays(t, -i);
+    if (Number(byDate[d]?.done || 0) > 0) streak += 1;
+    else break;
+  }
+  return streak;
+}
+
+function renderReportPage() {
+  const box = qs('#report-box');
+  if (!box) return;
+
+  const progress = getProgress();
+  const answeredList = Object.values(progress.answered || {});
+  const totalDone = Number(progress.doneCount || 0);
+  const totalCorrect = answeredList.filter(a => a.correct).length;
+  const totalAcc = totalDone ? Math.round((totalCorrect / totalDone) * 100) : 0;
+  const streak = getLearningStreak();
+  const last7 = getDailySeries(7);
+  const last14 = getDailySeries(14);
+  const prev7 = last14.slice(0, 7);
+  const weekDone = last7.reduce((s, x) => s + x.done, 0);
+  const weekCorrect = last7.reduce((s, x) => s + x.correct, 0);
+  const weekAcc = weekDone ? Math.round((weekCorrect / weekDone) * 100) : 0;
+  const prevWeekDone = prev7.reduce((s, x) => s + x.done, 0);
+  const prevWeekCorrect = prev7.reduce((s, x) => s + x.correct, 0);
+  const prevWeekAcc = prevWeekDone ? Math.round((prevWeekCorrect / prevWeekDone) * 100) : 0;
+  const doneDelta = weekDone - prevWeekDone;
+  const accDelta = weekAcc - prevWeekAcc;
+
+  const examList = getExamHistory().slice().sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0));
+  const recentExams = examList.slice(0, 5);
+  const examCount = examList.length;
+  const examAvg = examCount ? Math.round(examList.reduce((s, x) => s + Number(x.score || 0), 0) / examCount) : 0;
+  const examPassRate = examCount
+    ? Math.round((examList.filter(x => Number(x.score || 0) >= PASS_SCORE).length / examCount) * 100)
+    : 0;
+  const lastExam = examList[0];
+
+  const weak = getCrashWeakKnowledge(5);
+  const wrongReason = getWrongReason();
+  const wrongStat = { memory: 0, understand: 0, careless: 0, trap: 0 };
+  Object.values(wrongReason || {}).forEach(v => {
+    if (Object.prototype.hasOwnProperty.call(wrongStat, v)) wrongStat[v] += 1;
+  });
+  const reasonTotal = Object.values(wrongStat).reduce((a, b) => a + b, 0);
+
+  const review = getReview();
+  const reviewIds = Object.keys(review || {});
+  const now = Date.now();
+  const dueCount = reviewIds.filter(id => Number(review[id]?.nextTs || 0) <= now).length;
+  const scheduledCount = reviewIds.length;
+  const reviewHealthyRate = scheduledCount ? Math.round(((scheduledCount - dueCount) / scheduledCount) * 100) : 100;
+
+  const weakActionKid = weak[0]?.kid || '';
+  const topReason = Object.entries(wrongStat).sort((a, b) => b[1] - a[1])[0];
+  const reasonLabel = {
+    memory: '记忆错误',
+    understand: '理解错误',
+    careless: '粗心错误',
+    trap: '陷阱题误判'
+  };
+  const recent3 = getRecentAccuracy(3);
+  const examDate = getExamDate();
+  const daysLeft = getDaysLeft(examDate);
+  const weakPenalty = weak.slice(0, 3)
+    .reduce((s, x) => s + Math.max(0, 60 - Math.round(x.mastery * 100)), 0) / 3;
+  const reviewPenalty = Math.min(20, dueCount * 0.6);
+  const examSignal = examCount ? examAvg : 70;
+  const rawPredict = 0.45 * recent3.acc + 0.40 * examSignal + 0.15 * weekAcc - reviewPenalty - weakPenalty * 0.2 + (streak >= 3 ? 2 : 0);
+  const predictScore = Math.round(clamp(rawPredict, 45, 99));
+  const passProb = Math.round(clamp((predictScore - 60) * 2.5, 5, 99));
+  const riskText = passProb >= 80
+    ? '通过概率较高，保持当前节奏并重点防粗心。'
+    : passProb >= 60
+      ? '通过概率中等，建议增加模考与到期复习。'
+      : '通过风险较高，建议先做弱项专项 + 错题冲刺。';
+  const deltaText = (n) => (n > 0 ? `+${n}` : `${n}`);
+
+  box.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div class="card"><p class="text-neutral">总做题</p><p class="text-2xl font-bold mt-1">${totalDone}</p><p class="text-sm text-neutral mt-1">题库总量 ${QUESTIONS.length}</p></div>
+      <div class="card"><p class="text-neutral">累计正确率</p><p class="text-2xl font-bold mt-1">${totalAcc}%</p><p class="text-sm text-neutral mt-1">近7天 ${weekAcc}%</p></div>
+      <div class="card"><p class="text-neutral">连续学习</p><p class="text-2xl font-bold mt-1">${streak} 天</p><p class="text-sm text-neutral mt-1">近7天完成 ${weekDone} 题</p></div>
+      <div class="card"><p class="text-neutral">模考均分</p><p class="text-2xl font-bold mt-1">${examAvg} 分</p><p class="text-sm text-neutral mt-1">通过率 ${examPassRate}%（共${examCount}次）</p></div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+      <div class="card">
+        <p class="text-neutral">本周 vs 上周（题量）</p>
+        <p class="text-2xl font-bold mt-1">${weekDone} / ${prevWeekDone}</p>
+        <p class="text-sm mt-1 ${doneDelta >= 0 ? 'text-success' : 'text-error'}">变化 ${deltaText(doneDelta)} 题</p>
+      </div>
+      <div class="card">
+        <p class="text-neutral">本周 vs 上周（正确率）</p>
+        <p class="text-2xl font-bold mt-1">${weekAcc}% / ${prevWeekAcc}%</p>
+        <p class="text-sm mt-1 ${accDelta >= 0 ? 'text-success' : 'text-error'}">变化 ${deltaText(accDelta)}%</p>
+      </div>
+      <div class="card">
+        <p class="text-neutral">考试通过预测</p>
+        <p class="text-2xl font-bold mt-1">${passProb}%</p>
+        <p class="text-sm text-neutral mt-1">预测分 ${predictScore} · ${examDate ? `距考试 ${daysLeft} 天` : '未设置考试日期'}</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+      <div class="card">
+        <h4 class="font-bold mb-3">近7天学习趋势</h4>
+        <div class="space-y-2">
+          ${last7.map(x => `
+            <div>
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-neutral">${x.date.slice(5)} · ${x.done}题</span>
+                <span class="font-medium">${x.acc}%</span>
+              </div>
+              <div class="progress-bar mt-1"><div class="progress-bar-fill" style="width:${x.acc}%"></div></div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <h4 class="font-bold mb-3">最近模考表现</h4>
+        ${recentExams.length ? `
+          <div class="space-y-2">
+            ${recentExams.map(r => `
+              <div class="flex items-center justify-between text-sm border border-gray-200 rounded-lg px-3 py-2">
+                <span class="text-neutral">${formatDateTime(r.finishedAt)} · ${r.examType === 'quick' ? '快速测试' : '标准考试'}</span>
+                <span class="font-medium ${Number(r.score || 0) >= PASS_SCORE ? 'text-success' : 'text-error'}">${r.score}分</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : '<p class="text-sm text-neutral">暂无模考记录，建议先完成一次模拟考试。</p>'}
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+      <div class="card">
+        <h4 class="font-bold mb-3">薄弱知识点 Top 5</h4>
+        <div class="space-y-2">
+          ${weak.map((x, i) => `
+            <div class="border border-gray-200 rounded-lg p-3">
+              <div class="flex items-center justify-between">
+                <p class="font-medium">${i + 1}. ${KNOWLEDGE_DICT[x.kid] || x.kid}</p>
+                <span class="text-sm ${Math.round(x.mastery * 100) < 60 ? 'text-error' : 'text-neutral'}">${Math.round(x.mastery * 100)}%</span>
+              </div>
+              <p class="text-xs text-neutral mt-1">作答 ${x.attempts} 题</p>
+              <button class="btn btn-outline mt-2 w-full" data-report-action="weak" data-report-kid="${x.kid}">去专项20题</button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <h4 class="font-bold mb-3">错因画像 + 复习执行</h4>
+        <div class="space-y-2">
+          ${Object.entries(wrongStat).map(([k, v]) => `
+            <div>
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-neutral">${reasonLabel[k]}</span>
+                <span class="font-medium">${reasonTotal ? Math.round((v / reasonTotal) * 100) : 0}%</span>
+              </div>
+              <div class="progress-bar mt-1"><div class="progress-bar-fill" style="width:${reasonTotal ? Math.round((v / reasonTotal) * 100) : 0}%"></div></div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="mt-4 border-t border-gray-200 pt-3 text-sm">
+          <p class="text-neutral">到期复习：<span class="font-medium">${dueCount} 题</span> · 复习健康度：<span class="font-medium">${reviewHealthyRate}%</span></p>
+          <p class="text-neutral mt-1">最近模考：<span class="font-medium">${lastExam ? `${lastExam.score}分` : '暂无'}</span></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-4">
+      <h4 class="font-bold mb-3">行动建议（可直接执行）</h4>
+      <p class="text-sm text-neutral mb-3">${riskText}</p>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <button class="btn btn-primary" data-report-action="weak" ${weakActionKid ? `data-report-kid="${weakActionKid}"` : ''}>先补最弱知识点</button>
+        <button class="btn btn-outline" data-report-action="wrong">错题冲刺</button>
+        <button class="btn btn-outline" data-report-action="review">到期复习</button>
+        <button class="btn btn-outline" data-report-action="${(lastExam && Number(lastExam.score || 0) < PASS_SCORE) ? 'exam-standard' : 'exam-quick'}">开始模拟测试</button>
+        <button class="btn btn-outline" data-report-action="smart">进入智能加速</button>
+        <div class="text-sm text-neutral flex items-center">主要风险：${topReason?.[1] ? `${reasonLabel[topReason[0]]}占比高` : '暂无错因数据'}</div>
+      </div>
+    </div>
+  `;
+
+  qsa('[data-report-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = btn.getAttribute('data-report-action');
+      const kid = btn.getAttribute('data-report-kid');
+      if (act === 'weak') {
+        if (kid) startKnowledgePractice(kid, 20);
+        else runCrashAction('weak');
+        return;
+      }
+      if (act === 'wrong') return runCrashAction('wrong');
+      if (act === 'review') return runCrashAction('review');
+      if (act === 'exam-standard') return startMockExam('standard');
+      if (act === 'exam-quick') return startMockExam('quick');
+      startSmartPractice();
+    });
+  });
+}
+
+let mockExamTimer = null;
+let mockExam = {
+  status: 'idle',
+  examType: 'standard',
+  total: 0,
+  durationSec: 0,
+  queue: [],
+  cursor: 0,
+  answers: {},
+  startedAt: 0,
+  finishedAt: 0,
+  savedRecord: null
+};
+
+function buildMockExamQueue(totalCount) {
+  const pool = QUESTIONS.slice();
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const queue = pool.slice(0, totalCount).map(q => q.id);
+  let k = 0;
+  while (queue.length < totalCount && QUESTIONS.length) {
+    queue.push(QUESTIONS[k % QUESTIONS.length].id);
+    k += 1;
+  }
+  return queue;
+}
+
+function stopMockExamTimer() {
+  if (mockExamTimer) {
+    clearInterval(mockExamTimer);
+    mockExamTimer = null;
+  }
+}
+
+function startMockExam(mode = 'standard') {
+  if (!QUESTIONS.length) {
+    showQuestionLoadHint();
+    return;
+  }
+
+  const examType = mode === 'quick' ? 'quick' : 'standard';
+  const total = examType === 'quick' ? QUICK_TOTAL : DIAG_TOTAL;
+  const durationSec = examType === 'quick' ? QUICK_DURATION_SEC : DIAG_DURATION_SEC;
+
+  if (mockExam.status === 'running') {
+    const ok = confirm('当前有进行中的模拟考试，确认重新开始吗？');
+    if (!ok) return;
+  }
+
+  stopMockExamTimer();
+  mockExam = {
+    status: 'running',
+    examType,
+    total,
+    durationSec,
+    queue: buildMockExamQueue(total),
+    cursor: 0,
+    answers: {},
+    startedAt: Date.now(),
+    finishedAt: 0,
+    savedRecord: null
+  };
+
+  showPage('exam', '模拟考试');
+  renderExamPage();
+
+  mockExamTimer = setInterval(() => {
+    if (mockExam.status !== 'running') {
+      stopMockExamTimer();
+      return;
+    }
+    const elapsed = Math.floor((Date.now() - (mockExam.startedAt || Date.now())) / 1000);
+    const left = Math.max(0, mockExam.durationSec - elapsed);
+    const timerEl = qs('#mock-exam-timer');
+    if (timerEl) timerEl.textContent = formatDuration(left);
+    if (left <= 0) finishMockExam(true);
+  }, 1000);
+}
+
+function formatDuration(sec) {
+  const s = Math.max(0, Math.floor(sec));
+  const mm = String(Math.floor(s / 60)).padStart(2, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return `${mm}:${ss}`;
+}
+
+function getMockExamCurrentQuestion() {
+  if (!mockExam.queue.length) return null;
+  const qid = mockExam.queue[mockExam.cursor];
+  return QUESTIONS.find(q => q.id === qid) || null;
+}
+
+function finishMockExam(forceByTimeout = false) {
+  if (mockExam.status !== 'running') return;
+  mockExam.finishedAt = Date.now();
+  mockExam.status = 'done';
+  stopMockExamTimer();
+
+  const rec = buildExamResultFromDiagnosis({
+    savedExamId: `exam_${Date.now()}`,
+    queue: mockExam.queue.slice(),
+    answers: { ...mockExam.answers },
+    startedAt: mockExam.startedAt,
+    finishedAt: mockExam.finishedAt,
+    examType: mockExam.examType,
+    durationSec: mockExam.durationSec
+  });
+  saveExamResult(rec);
+  mockExam.savedRecord = rec;
+
+  if (forceByTimeout) {
+    alert('考试时间已到，系统已自动交卷。');
+  }
+  renderExamPage();
+}
+
+function renderMockExamRuntime() {
+  const runtime = qs('#exam-runtime');
+  const entry = qs('#exam-entry-grid');
+  const history = qs('#exam-history-section');
+  if (!runtime || !entry || !history) return;
+
+  if (mockExam.status === 'idle') {
+    runtime.classList.add('hidden');
+    entry.classList.remove('hidden');
+    history.classList.remove('hidden');
+    runtime.innerHTML = '';
+    return;
+  }
+
+  runtime.classList.remove('hidden');
+  entry.classList.add('hidden');
+  history.classList.add('hidden');
+
+  if (mockExam.status === 'done' && mockExam.savedRecord) {
+    const r = mockExam.savedRecord;
+    const pass = Number(r.score || 0) >= PASS_SCORE;
+    runtime.innerHTML = `
+      <div class="card">
+        <h4 class="text-lg font-bold">考试完成</h4>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-4">
+          <div class="card"><p class="text-neutral">类型</p><p class="text-xl font-bold mt-1">${r.examType === 'quick' ? '快速测试' : '标准考试'}</p></div>
+          <div class="card"><p class="text-neutral">得分</p><p class="text-2xl font-bold mt-1">${r.score}分</p></div>
+          <div class="card"><p class="text-neutral">答对/总题</p><p class="text-2xl font-bold mt-1">${r.correct}/${r.total}</p></div>
+          <div class="card"><p class="text-neutral">结果</p><p class="text-2xl font-bold mt-1 ${pass ? 'text-success' : 'text-error'}">${pass ? '通过' : '未通过'}</p></div>
+        </div>
+        <div class="flex flex-wrap gap-2 mt-4">
+          <button class="btn btn-primary" id="mock-exam-view-detail">查看错题解析</button>
+          <button class="btn btn-outline" id="mock-exam-back-list">返回考试首页</button>
+        </div>
+      </div>
+    `;
+
+    qs('#mock-exam-view-detail')?.addEventListener('click', () => renderExamDetail(r));
+    qs('#mock-exam-back-list')?.addEventListener('click', () => {
+      mockExam = {
+        status: 'idle',
+        examType: 'standard',
+        total: 0,
+        durationSec: 0,
+        queue: [],
+        cursor: 0,
+        answers: {},
+        startedAt: 0,
+        finishedAt: 0,
+        savedRecord: null
+      };
+      renderExamPage();
+    });
+    return;
+  }
+
+  const q = getMockExamCurrentQuestion();
+  if (!q) {
+    runtime.innerHTML = '<div class="card"><p class="text-error">考试题目加载失败，请重新开始考试。</p></div>';
+    return;
+  }
+  const qid = mockExam.queue[mockExam.cursor];
+  const ans = mockExam.answers[qid] || {};
+  const selected = Array.isArray(ans.selected) ? ans.selected.slice() : (typeof ans.selected === 'number' ? [ans.selected] : []);
+  const selectedSet = new Set(selected);
+  const isSubmitted = typeof ans.correct === 'boolean';
+  const correctSet = new Set(getAnswerIndexes(q.answer));
+  const elapsed = Math.floor((Date.now() - (mockExam.startedAt || Date.now())) / 1000);
+  const left = Math.max(0, mockExam.durationSec - elapsed);
+  const answeredCount = Object.keys(mockExam.answers).filter(id => typeof mockExam.answers[id]?.correct === 'boolean').length;
+  const draftCount = Object.keys(mockExam.answers).filter(id => {
+    const a = mockExam.answers[id];
+    const picked = getAnswerIndexes(a?.selected);
+    return picked.length > 0 && typeof a?.correct !== 'boolean';
+  }).length;
+  const unansweredCount = Math.max(0, mockExam.total - answeredCount);
+  const progressPct = mockExam.total ? Math.round(((mockExam.cursor + 1) / mockExam.total) * 100) : 0;
+  const typeText = questionTypeText(q.type, true);
+
+  runtime.innerHTML = `
+    <div class="card">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h4 class="text-lg font-bold">${mockExam.examType === 'quick' ? '快速测试' : '标准考试'}</h4>
+          <p class="text-sm text-neutral mt-1">${typeText} · 题目 ${mockExam.cursor + 1}/${mockExam.total} · 已作答 ${answeredCount} 题 · 未作答 ${unansweredCount} 题${draftCount ? ` · 待提交 ${draftCount} 题` : ''}</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="px-3 py-2 rounded-lg bg-primary/10 text-primary font-medium">剩余时间 <span id="mock-exam-timer">${formatDuration(left)}</span></span>
+          <button class="btn btn-outline" id="mock-exam-submit-paper">交卷</button>
+        </div>
+      </div>
+      <div class="mt-4 progress-bar"><div class="progress-bar-fill" style="width:${progressPct}%"></div></div>
+      <div class="mt-6">
+        <p class="text-lg font-medium">${q.stem}</p>
+      </div>
+      <div class="mt-4 space-y-3" id="mock-exam-options"></div>
+      <div class="mt-4 hidden" id="mock-exam-analysis">
+        <div class="p-4 rounded-lg border border-gray-200 bg-gray-50">
+          <div id="mock-exam-result" class="mb-2"></div>
+          <p class="text-sm"><strong>解析：</strong>${q.analysis || '暂无解析'}</p>
+        </div>
+      </div>
+      <div class="mt-4 flex flex-wrap justify-between gap-2">
+        <button class="btn btn-secondary" id="mock-exam-prev" ${mockExam.cursor === 0 ? 'disabled' : ''}>上一题</button>
+        <div class="flex gap-2">
+          <button class="btn btn-primary" id="mock-exam-submit-answer" ${isSubmitted ? 'disabled' : ''}>提交答案</button>
+          <button class="btn btn-secondary" id="mock-exam-next">${mockExam.cursor >= mockExam.total - 1 ? '最后一题' : '下一题'}</button>
+        </div>
+      </div>
+      <div class="mt-5 border-t border-gray-200 pt-4">
+        <div class="flex flex-wrap items-center gap-2 mb-3 text-xs text-neutral">
+          <span class="badge">答题卡</span>
+          <span class="badge badge-success">已答对</span>
+          <span class="badge badge-error">已答错</span>
+          <span class="badge badge-warning">待提交</span>
+          <span class="badge">未作答</span>
+        </div>
+        <div class="grid grid-cols-8 md:grid-cols-10 lg:grid-cols-12 gap-2" id="mock-exam-card"></div>
+      </div>
+    </div>
+  `;
+
+  const optWrap = qs('#mock-exam-options');
+  q.options.forEach((text, oi) => {
+    const item = document.createElement('div');
+    item.className = 'question-option';
+    if (isSubmitted) {
+      if (correctSet.has(oi)) item.classList.add('correct');
+      if (selectedSet.has(oi) && !correctSet.has(oi)) item.classList.add('incorrect');
+    } else if (selectedSet.has(oi)) {
+      item.classList.add('selected');
+    }
+    item.innerHTML = `<div class="option-indicator">${renderOptionLabel(oi)}</div><div>${text}</div>`;
+    item.addEventListener('click', () => {
+      if (isSubmitted) return;
+      const cur = new Set(selected);
+      if (q.type === 'multi') {
+        if (cur.has(oi)) cur.delete(oi);
+        else cur.add(oi);
+        mockExam.answers[qid] = { selected: Array.from(cur).sort((a, b) => a - b) };
+      } else {
+        mockExam.answers[qid] = { selected: oi };
+      }
+      renderMockExamRuntime();
+    });
+    optWrap.appendChild(item);
+  });
+
+  if (isSubmitted) {
+    const analysis = qs('#mock-exam-analysis');
+    const result = qs('#mock-exam-result');
+    if (analysis) analysis.classList.remove('hidden');
+    if (result) result.innerHTML = ans.correct
+      ? '<span class="badge badge-success">回答正确</span>'
+      : `<span class="badge badge-error">回答错误</span> 正确答案：${getAnswerIndexes(q.answer).map(i => renderOptionLabel(i)).join('、')}`;
+  }
+
+  qs('#mock-exam-prev')?.addEventListener('click', () => {
+    if (mockExam.cursor > 0) mockExam.cursor -= 1;
+    renderMockExamRuntime();
+  });
+  qs('#mock-exam-next')?.addEventListener('click', () => {
+    if (mockExam.cursor < mockExam.total - 1) {
+      mockExam.cursor += 1;
+      renderMockExamRuntime();
+    }
+  });
+  qs('#mock-exam-submit-paper')?.addEventListener('click', () => {
+    if (confirm('确认现在交卷吗？')) finishMockExam(false);
+  });
+  qs('#mock-exam-submit-answer')?.addEventListener('click', () => {
+    if (isSubmitted) return;
+    const picked = getAnswerIndexes(mockExam.answers[qid]?.selected);
+    if (!picked.length) {
+      alert('请先选择答案');
+      return;
+    }
+    const correct = isSameAnswerSet(picked, q.answer);
+    mockExam.answers[qid] = { selected: q.type === 'multi' ? picked : picked[0], correct, ts: Date.now() };
+    if (!correct) addWrong(qid);
+    renderMockExamRuntime();
+  });
+
+  const cardWrap = qs('#mock-exam-card');
+  if (cardWrap) {
+    cardWrap.innerHTML = mockExam.queue.map((id, i) => {
+      const a = mockExam.answers[id] || {};
+      const isCurrent = i === mockExam.cursor;
+      const isDone = typeof a.correct === 'boolean';
+      const hasDraft = !isDone && getAnswerIndexes(a.selected).length > 0;
+      const cls = isCurrent
+        ? 'border-primary bg-primary/10 text-primary'
+        : isDone
+          ? (a.correct ? 'border-success bg-success/10 text-success' : 'border-error bg-error/10 text-error')
+          : hasDraft
+            ? 'border-warning bg-warning/10 text-warning'
+            : 'border-gray-200 bg-white text-neutral';
+      return `<button class="h-9 rounded border text-sm font-medium ${cls}" data-exam-jump="${i}">${i + 1}</button>`;
+    }).join('');
+
+    qsa('[data-exam-jump]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.getAttribute('data-exam-jump'));
+        if (!Number.isFinite(idx)) return;
+        mockExam.cursor = Math.max(0, Math.min(mockExam.total - 1, idx));
+        renderMockExamRuntime();
+      });
+    });
+  }
 }
 
 // ======================
@@ -2084,6 +2843,7 @@ function bindHelpActions() {
         renderStats();
         renderPlanSummary();
         renderGlobalCTA();
+        persistActiveStudentSnapshot();
         return;
       }
     });
@@ -2432,6 +3192,7 @@ function renderExamDetail(record) {
 }
 
 function renderExamPage() {
+  renderMockExamRuntime();
   const body = qs('#exam-history-body');
   if (!body) return;
 
@@ -2864,6 +3625,482 @@ function renderQuestionBank() {
   }
 }
 
+const AUTH_KEYS = {
+  ORG_SESSION: 'qa.orgSession',
+  ACTIVE_STUDENT: 'qa.activeStudent'
+};
+
+const STUDENT_DATA_KEYS = [
+  'qa.examDate','qa.progress','qa.favorites','qa.notes','qa.wrong','qa.wrongStreak','qa.daily',
+  'qa.knowledgeMastery','qa.diagnosis','qa.settings','qa.wrongReason','qa.review','qa.examHistory'
+];
+
+let authState = {
+  org: null,
+  activeStudentId: '',
+  students: []
+};
+
+function parseJsonSafe(raw, fallback) {
+  try {
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function getOrgStudentsKey(account) {
+  return `qa.orgStudents.${account || ''}`;
+}
+
+function getStudentSnapshotKey(account, studentId) {
+  return `qa.snapshot.${account || ''}.${studentId || ''}`;
+}
+
+function getOrgSession() {
+  return parseJsonSafe(localStorage.getItem(AUTH_KEYS.ORG_SESSION), null);
+}
+
+function setOrgSession(session) {
+  if (!session) {
+    localStorage.removeItem(AUTH_KEYS.ORG_SESSION);
+    return;
+  }
+  localStorage.setItem(AUTH_KEYS.ORG_SESSION, JSON.stringify(session));
+}
+
+function getOrgStudents(account) {
+  return parseJsonSafe(localStorage.getItem(getOrgStudentsKey(account)), []);
+}
+
+function setOrgStudents(account, list) {
+  localStorage.setItem(getOrgStudentsKey(account), JSON.stringify(Array.isArray(list) ? list : []));
+}
+
+function normalizeStudents(list) {
+  const used = new Set();
+  return (Array.isArray(list) ? list : []).map((s, idx) => {
+    const phoneDigits = String(s.phone || '').replace(/\D/g, '');
+    let accountBase = String(s.loginAccount || '').trim();
+    if (!accountBase) {
+      accountBase = `stu${(phoneDigits.slice(-6) || String(s.id || '').slice(-6) || String(idx + 1).padStart(3, '0'))}`;
+    }
+    let account = accountBase.toLowerCase();
+    let n = 1;
+    while (used.has(account)) {
+      n += 1;
+      account = `${accountBase.toLowerCase()}${n}`;
+    }
+    used.add(account);
+    return {
+      ...s,
+      loginAccount: account,
+      loginPassword: String(s.loginPassword || '123456')
+    };
+  });
+}
+
+function persistActiveStudentSnapshot() {
+  if (!authState.org?.account || !authState.activeStudentId) return;
+  const payload = {};
+  STUDENT_DATA_KEYS.forEach(k => {
+    const v = localStorage.getItem(k);
+    if (v !== null) payload[k] = v;
+  });
+  localStorage.setItem(getStudentSnapshotKey(authState.org.account, authState.activeStudentId), JSON.stringify(payload));
+}
+
+function loadStudentSnapshot(account, studentId) {
+  STUDENT_DATA_KEYS.forEach(k => localStorage.removeItem(k));
+  const payload = parseJsonSafe(localStorage.getItem(getStudentSnapshotKey(account, studentId)), {});
+  Object.keys(payload || {}).forEach(k => {
+    if (Object.prototype.hasOwnProperty.call(payload, k)) localStorage.setItem(k, payload[k]);
+  });
+}
+
+function updateSidebarIdentity() {
+  const nameEl = qs('#sidebar-student-name');
+  const orgEl = qs('#sidebar-org-name');
+  const stu = authState.students.find(x => x.id === authState.activeStudentId);
+  if (nameEl) nameEl.textContent = stu ? `${stu.name}（${stu.carType || 'C1'}）` : '未绑定学员';
+  if (orgEl) orgEl.textContent = authState.org ? `${authState.org.orgName || '驾校'} · ${authState.org.account}` : '未登录驾校';
+}
+
+function renderMockLoginQr() {
+  const c = qs('#mock-qr-canvas');
+  if (!c) return;
+  const size = 29;
+  const px = 6;
+  c.width = size * px;
+  c.height = size * px;
+  const ctx = c.getContext('2d');
+  if (!ctx) return;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, c.width, c.height);
+
+  const inFinder = (x, y, ox, oy) => x >= ox && x < ox + 7 && y >= oy && y < oy + 7;
+  const isFinderCell = (x, y) => inFinder(x, y, 0, 0) || inFinder(x, y, size - 7, 0) || inFinder(x, y, 0, size - 7);
+  const drawFinder = (ox, oy) => {
+    ctx.fillStyle = '#111827';
+    ctx.fillRect(ox * px, oy * px, 7 * px, 7 * px);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect((ox + 1) * px, (oy + 1) * px, 5 * px, 5 * px);
+    ctx.fillStyle = '#111827';
+    ctx.fillRect((ox + 2) * px, (oy + 2) * px, 3 * px, 3 * px);
+  };
+  drawFinder(0, 0);
+  drawFinder(size - 7, 0);
+  drawFinder(0, size - 7);
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      if (isFinderCell(x, y)) continue;
+      const v = ((x * 37 + y * 19 + x * y * 3 + 17) % 100) < 46;
+      if (!v) continue;
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(x * px, y * px, px, px);
+    }
+  }
+
+  ctx.fillStyle = '#1890FF';
+  ctx.fillRect((size / 2 - 2) * px, (size / 2 - 2) * px, 4 * px, 4 * px);
+}
+
+function openAuthGate(step = 'org') {
+  qs('#auth-gate')?.classList.remove('hidden');
+  qs('#main-app')?.classList.add('hidden');
+  qs('#mode-selection')?.classList.add('hidden');
+  const orgStep = qs('#auth-step-org');
+  const stuStep = qs('#auth-step-student');
+  if (step === 'student') {
+    renderAuthStudents();
+    renderMockLoginQr();
+    orgStep?.classList.add('hidden');
+    stuStep?.classList.remove('hidden');
+  } else {
+    orgStep?.classList.remove('hidden');
+    stuStep?.classList.add('hidden');
+  }
+}
+
+function closeAuthGate() {
+  qs('#auth-gate')?.classList.add('hidden');
+  qs('#main-app')?.classList.remove('hidden');
+  qs('#mode-selection')?.classList.add('hidden');
+}
+
+function renderAuthStudents() {
+  const sel = qs('#student-select');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">请选择学员</option>' + authState.students.map(s => (
+    `<option value="${s.id}">${s.name} · ${s.phone || '-'} · ${s.carType || 'C1'}</option>`
+  )).join('');
+  const hints = qs('#auth-student-hints');
+  if (hints) {
+    const top = authState.students.slice(0, 3).map(s => `${s.name}:${s.loginAccount}/${s.loginPassword}`).join('；');
+    hints.textContent = top ? `调试账号示例：${top}` : '暂无调试学员账号。';
+  }
+  renderTopStudentSwitcher();
+}
+
+function renderTopStudentSwitcher() {
+  const sel = qs('#top-student-select');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">当前学员</option>' + authState.students.map(s => (
+    `<option value="${s.id}">${s.name} · ${s.carType || 'C1'}</option>`
+  )).join('');
+  if (authState.activeStudentId) sel.value = authState.activeStudentId;
+}
+
+function openStudentManageModal() {
+  if (!authState.org?.account) {
+    openAuthGate('org');
+    return;
+  }
+  const modal = qs('#student-manage-modal');
+  if (!modal) return;
+  const search = qs('#student-manage-search');
+  if (search) search.value = '';
+  renderStudentManageList('');
+  modal.classList.remove('hidden');
+}
+
+function closeStudentManageModal() {
+  qs('#student-manage-modal')?.classList.add('hidden');
+}
+
+function renderStudentManageList(keyword = '') {
+  const listEl = qs('#student-manage-list');
+  const summary = qs('#student-manage-summary');
+  if (!listEl) return;
+  const q = String(keyword || '').trim().toLowerCase();
+  const list = authState.students.filter(s => {
+    const text = `${s.name || ''} ${s.phone || ''}`.toLowerCase();
+    return !q || text.includes(q);
+  });
+  if (summary) summary.textContent = `共 ${authState.students.length} 名学员，当前显示 ${list.length} 名`;
+  if (!list.length) {
+    listEl.innerHTML = '<div class="text-sm text-neutral py-4">暂无匹配学员。</div>';
+    return;
+  }
+  listEl.innerHTML = list.map(s => {
+    const isActive = s.id === authState.activeStudentId;
+    return `
+      <div class="border border-gray-200 rounded-lg p-3">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+          <div>
+            <p class="font-medium">${s.name} ${isActive ? '<span class="badge badge-success ml-1">当前</span>' : ''}</p>
+            <p class="text-xs text-neutral mt-1">手机号：${s.phone || '-'} · 车型：${s.carType || 'C1'}</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn btn-outline text-xs px-3 py-1" data-sm-act="switch" data-sm-id="${s.id}">切换</button>
+            <button class="btn btn-secondary text-xs px-3 py-1" data-sm-act="edit" data-sm-id="${s.id}">编辑</button>
+            <button class="btn btn-secondary text-xs px-3 py-1 text-error" data-sm-act="delete" data-sm-id="${s.id}">删除</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  qsa('[data-sm-act]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = btn.getAttribute('data-sm-act');
+      const sid = btn.getAttribute('data-sm-id');
+      if (!sid) return;
+      handleStudentManageAction(act, sid);
+    });
+  });
+}
+
+function handleStudentManageAction(act, sid) {
+  const tip = qs('#student-manage-tip');
+  if (tip) tip.textContent = '';
+  const idx = authState.students.findIndex(s => s.id === sid);
+  if (idx < 0) return;
+  const stu = authState.students[idx];
+
+  if (act === 'switch') {
+    enterStudent(sid);
+    closeStudentManageModal();
+    return;
+  }
+
+  if (act === 'edit') {
+    const name = prompt('学员姓名', stu.name || '') || stu.name || '';
+    const phone = prompt('手机号', stu.phone || '') || '';
+    const carType = (prompt('准驾车型（如 C1/C2/A1）', stu.carType || 'C1') || stu.carType || 'C1').toUpperCase();
+    authState.students[idx] = { ...stu, name: name.trim() || stu.name, phone: phone.trim(), carType: carType.trim() || stu.carType || 'C1' };
+    setOrgStudents(authState.org.account, authState.students);
+    renderAuthStudents();
+    updateSidebarIdentity();
+    renderStudentManageList(qs('#student-manage-search')?.value || '');
+    return;
+  }
+
+  if (act === 'delete') {
+    const ok = confirm(`确认删除学员「${stu.name}」吗？该学员本地学习数据快照也会删除。`);
+    if (!ok) return;
+    if (sid === authState.activeStudentId) persistActiveStudentSnapshot();
+    authState.students = authState.students.filter(s => s.id !== sid);
+    setOrgStudents(authState.org.account, authState.students);
+    localStorage.removeItem(getStudentSnapshotKey(authState.org.account, sid));
+
+    if (!authState.students.length) {
+      authState.activeStudentId = '';
+      localStorage.removeItem(AUTH_KEYS.ACTIVE_STUDENT);
+      updateSidebarIdentity();
+      renderAuthStudents();
+      closeStudentManageModal();
+      openAuthGate('student');
+      return;
+    }
+
+    if (sid === authState.activeStudentId) {
+      enterStudent(authState.students[0].id);
+      closeStudentManageModal();
+      return;
+    }
+    renderAuthStudents();
+    renderStudentManageList(qs('#student-manage-search')?.value || '');
+  }
+}
+
+function bindStudentManageModal() {
+  const modal = qs('#student-manage-modal');
+  if (!modal || modal.dataset.bound) return;
+  modal.dataset.bound = '1';
+
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeStudentManageModal();
+  });
+  qs('#student-manage-close')?.addEventListener('click', closeStudentManageModal);
+  qs('#student-manage-search')?.addEventListener('input', (e) => {
+    renderStudentManageList(e.target?.value || '');
+  });
+}
+
+function enterStudent(studentId) {
+  if (!authState.org?.account || !studentId) return;
+  if (authState.activeStudentId && authState.activeStudentId !== studentId) {
+    persistActiveStudentSnapshot();
+  }
+  authState.activeStudentId = studentId;
+  localStorage.setItem(AUTH_KEYS.ACTIVE_STUDENT, studentId);
+  loadStudentSnapshot(authState.org.account, studentId);
+
+  closeAuthGate();
+  updateSidebarIdentity();
+  renderTopStudentSwitcher();
+  renderStats();
+  renderPlanSummary();
+  renderGlobalCTA();
+  renderExamPage();
+  renderCrashCourse();
+  renderReportPage();
+  showPage('home', '首页');
+}
+
+function logoutOrg() {
+  persistActiveStudentSnapshot();
+  authState = { org: null, activeStudentId: '', students: [] };
+  localStorage.removeItem(AUTH_KEYS.ACTIVE_STUDENT);
+  setOrgSession(null);
+  const tip = qs('#auth-tip');
+  if (tip) tip.textContent = '';
+  openAuthGate('org');
+  updateSidebarIdentity();
+  renderTopStudentSwitcher();
+}
+
+function bindAuthFlow() {
+  const gate = qs('#auth-gate');
+  if (!gate || gate.dataset.bound) return;
+  gate.dataset.bound = '1';
+  bindStudentManageModal();
+
+  const tip = qs('#auth-tip');
+  const setTip = (msg) => { if (tip) tip.textContent = msg || ''; };
+
+  qs('#org-login-btn')?.addEventListener('click', () => {
+    const account = String(qs('#org-account')?.value || '').trim();
+    const password = String(qs('#org-password')?.value || '').trim();
+    if (!account || !password) {
+      setTip('请输入驾校账号和密码。');
+      return;
+    }
+    authState.org = { account, orgName: '', loginAt: Date.now() };
+    setOrgSession(authState.org);
+    authState.students = normalizeStudents(getOrgStudents(account));
+    setOrgStudents(account, authState.students);
+    authState.activeStudentId = '';
+    renderAuthStudents();
+    setTip('');
+    openAuthGate('student');
+  });
+
+  qs('#org-logout-btn')?.addEventListener('click', () => {
+    setTip('');
+    logoutOrg();
+  });
+
+  qs('#bind-selected-student')?.addEventListener('click', () => {
+    const sid = String(qs('#student-select')?.value || '');
+    if (!sid) {
+      setTip('请先选择要绑定的学员。');
+      return;
+    }
+    setTip('');
+    enterStudent(sid);
+  });
+
+  qs('#student-password-login-btn')?.addEventListener('click', () => {
+    const acc = String(qs('#student-login-account')?.value || '').trim().toLowerCase();
+    const pwd = String(qs('#student-login-password')?.value || '').trim();
+    if (!acc || !pwd) {
+      setTip('请输入学员账号和密码。');
+      return;
+    }
+    const stu = authState.students.find(s => s.loginAccount === acc && String(s.loginPassword || '') === pwd);
+    if (!stu) {
+      setTip('学员账号或密码错误，请确认后重试。');
+      return;
+    }
+    setTip('');
+    enterStudent(stu.id);
+  });
+
+  qs('#student-scan-login-btn')?.addEventListener('click', () => {
+    // 演示模式：点击后自动生成一个 mock 学员并登录
+    const stamp = Date.now().toString().slice(-6);
+    const mock = normalizeStudents([{
+      id: `stu_scan_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      name: `扫码学员${stamp.slice(-3)}`,
+      phone: `1390000${stamp.slice(-4)}`,
+      carType: 'C1',
+      loginAccount: `scan${stamp}`,
+      loginPassword: '123456',
+      createdAt: Date.now()
+    }])[0];
+    authState.students = [mock, ...authState.students];
+    setOrgStudents(authState.org.account, authState.students);
+    renderAuthStudents();
+    setTip('');
+    enterStudent(mock.id);
+  });
+
+  qs('#create-student-btn')?.addEventListener('click', () => {
+    if (!authState.org?.account) {
+      setTip('请先完成驾校登录。');
+      openAuthGate('org');
+      return;
+    }
+    const name = String(qs('#new-student-name')?.value || '').trim();
+    const phone = String(qs('#new-student-phone')?.value || '').trim();
+    const carType = String(qs('#new-student-car-type')?.value || 'C1').trim();
+    if (!name) {
+      setTip('请填写学员姓名。');
+      return;
+    }
+    const student = {
+      id: `stu_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      name,
+      phone,
+      carType,
+      loginAccount: '',
+      loginPassword: '',
+      createdAt: Date.now()
+    };
+    authState.students = normalizeStudents([student, ...authState.students]);
+    setOrgStudents(authState.org.account, authState.students);
+    renderAuthStudents();
+    const sel = qs('#student-select');
+    if (sel) sel.value = student.id;
+    setTip('');
+    enterStudent(student.id);
+  });
+}
+
+function initAuthGate() {
+  bindAuthFlow();
+  const org = getOrgSession();
+  if (!org?.account) {
+    openAuthGate('org');
+    return;
+  }
+  authState.org = org;
+  authState.students = normalizeStudents(getOrgStudents(org.account));
+  setOrgStudents(org.account, authState.students);
+  renderAuthStudents();
+  const active = String(localStorage.getItem(AUTH_KEYS.ACTIVE_STUDENT) || '');
+  if (active && authState.students.some(s => s.id === active)) {
+    enterStudent(active);
+    return;
+  }
+  openAuthGate('student');
+  updateSidebarIdentity();
+}
+
 async function main() {
   await loadQuestions();
   if (!QUESTIONS.length) showQuestionLoadHint();
@@ -2873,6 +4110,11 @@ async function main() {
   renderPlanSummary();
   renderGlobalCTA();
   renderExamPage();
+  initAuthGate();
+  window.addEventListener('beforeunload', persistActiveStudentSnapshot);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') persistActiveStudentSnapshot();
+  });
 }
 
 window.addEventListener('load', main);

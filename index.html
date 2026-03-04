@@ -90,8 +90,103 @@
     </style>
 </head>
 <body class="bg-bg-light min-h-screen">
+    <div id="auth-gate" class="min-h-screen flex items-center justify-center p-6">
+        <div class="w-full max-w-3xl">
+            <div class="card">
+                <h2 class="text-2xl font-bold text-primary">驾校工作台登录</h2>
+                <p class="text-neutral mt-2">请先登录驾校账号，再绑定学员进入学习系统。每个学员的数据将独立保存。</p>
+
+                <div id="auth-step-org" class="mt-6">
+                    <h3 class="font-bold mb-3">1. 驾校登录</h3>
+                    <div class="space-y-3">
+                        <label class="text-sm text-neutral block">登录账号
+                            <input id="org-account" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2" placeholder="请输入账号" />
+                        </label>
+                        <label class="text-sm text-neutral block">登录密码
+                            <input id="org-password" type="password" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2" placeholder="请输入密码" />
+                        </label>
+                    </div>
+                    <div class="flex justify-end mt-4">
+                        <button class="btn btn-primary" id="org-login-btn">登录并继续</button>
+                    </div>
+                </div>
+
+                <div id="auth-step-student" class="mt-8 border-t border-gray-200 pt-6 hidden">
+                    <h3 class="font-bold mb-3">2. 学员登录</h3>
+                    <p class="text-sm text-neutral mb-4">正式流程支持“扫码登录”与“学员账号密码登录”。学员账号由管理后台生成后发给学员。</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <h4 class="font-medium mb-2">扫码登录（APP）</h4>
+                            <p class="text-xs text-neutral mb-3">生产环境：学员在APP扫码后自动登录。当前原型点击按钮会自动生成并登录一个 mock 学员。</p>
+                            <div class="w-52 mx-auto border border-gray-200 rounded-xl bg-gray-50 p-3">
+                                <div class="relative w-44 h-44 mx-auto bg-white rounded-lg border border-gray-300 overflow-hidden">
+                                    <canvas id="mock-qr-canvas" class="absolute inset-0 w-full h-full"></canvas>
+                                    <div class="absolute left-0 right-0 h-0.5 bg-primary/70 shadow-[0_0_8px_rgba(24,144,255,0.8)] top-1/2 -translate-y-1/2 animate-pulse"></div>
+                                </div>
+                                <p class="text-[11px] text-neutral text-center mt-2">请使用学员APP扫码</p>
+                            </div>
+                            <button class="btn btn-primary w-full mt-3" id="student-scan-login-btn">扫码登录（演示）</button>
+                        </div>
+                        <div class="border border-gray-200 rounded-lg p-4">
+                            <h4 class="font-medium mb-2">账号密码登录</h4>
+                            <label class="text-sm text-neutral block">学员账号
+                                <input id="student-login-account" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2" placeholder="请输入学员账号" />
+                            </label>
+                            <label class="text-sm text-neutral block mt-3">学员密码
+                                <input id="student-login-password" type="password" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2" placeholder="请输入学员密码" />
+                            </label>
+                            <button class="btn btn-primary w-full mt-3" id="student-password-login-btn">学员登录</button>
+                        </div>
+                    </div>
+
+                    <div class="mt-5 border-t border-gray-200 pt-5">
+                        <p class="font-medium mb-3">本地调试入口（后端未接入时）</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <label class="text-sm text-neutral">选择已有学员（调试）
+                                <select id="student-select" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2">
+                                    <option value="">请选择学员</option>
+                                </select>
+                            </label>
+                            <div class="flex items-end">
+                                <button class="btn btn-outline w-full" id="bind-selected-student">绑定并进入（调试）</button>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                            <label class="text-sm text-neutral">学员姓名
+                                <input id="new-student-name" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2" placeholder="例如：张三" />
+                            </label>
+                            <label class="text-sm text-neutral">手机号
+                                <input id="new-student-phone" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2" placeholder="例如：138****1234" />
+                            </label>
+                            <label class="text-sm text-neutral">准驾车型
+                                <select id="new-student-car-type" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2">
+                                    <option value="C1">C1</option>
+                                    <option value="C2">C2</option>
+                                    <option value="A1">A1</option>
+                                    <option value="A2">A2</option>
+                                    <option value="B1">B1</option>
+                                    <option value="B2">B2</option>
+                                    <option value="D">D</option>
+                                    <option value="E">E</option>
+                                </select>
+                            </label>
+                        </div>
+                        <p class="text-xs text-neutral mt-2" id="auth-student-hints"></p>
+                        <div class="flex justify-between mt-4">
+                            <button class="btn btn-secondary" id="org-logout-btn">退出驾校账号</button>
+                            <button class="btn btn-primary" id="create-student-btn">创建并绑定（调试）</button>
+                        </div>
+                    </div>
+                </div>
+
+                <p id="auth-tip" class="text-sm text-error mt-4"></p>
+            </div>
+        </div>
+    </div>
+
     <!-- 模式选择页面 -->
-    <div id="mode-selection" class="min-h-screen flex flex-col items-center justify-center p-6">
+    <div id="mode-selection" class="min-h-screen flex flex-col items-center justify-center p-6 hidden">
         <div class="w-full max-w-2xl">
             <div class="text-center mb-8">
                 <h1 class="text-3xl font-bold text-primary flex items-center justify-center gap-2 mb-4">
@@ -355,9 +450,13 @@
                         <i class="fa fa-user text-primary"></i>
                     </div>
                     <div>
-                        <p class="font-medium">张三</p>
-                        <p class="text-xs text-neutral">C1 科目一</p>
+                        <p class="font-medium" id="sidebar-student-name">未绑定学员</p>
+                        <p class="text-xs text-neutral" id="sidebar-org-name">未登录驾校</p>
                     </div>
+                </div>
+                <div class="grid grid-cols-2 gap-2 mt-3">
+                    <button class="btn btn-secondary text-xs px-2 py-2" id="btn-switch-student">切换学员</button>
+                    <button class="btn btn-outline text-xs px-2 py-2" id="btn-logout-org">退出登录</button>
                 </div>
             </div>
         </aside>
@@ -368,6 +467,12 @@
             <header class="bg-white border-b border-gray-200 p-4 flex justify-between items-center">
                 <div class="flex items-center gap-4">
                     <h2 class="text-xl font-bold" id="page-title">首页</h2>
+                    <div class="hidden md:flex items-center gap-2">
+                        <select id="top-student-select" class="border border-gray-300 rounded-md px-3 py-2 text-sm min-w-[220px]">
+                            <option value="">当前学员</option>
+                        </select>
+                        <button class="btn btn-secondary text-sm px-3 py-2" id="btn-student-manage">学员管理</button>
+                    </div>
                 </div>
                 <div class="flex items-center gap-4">
                     <div class="relative">
@@ -848,7 +953,7 @@
                         <h3 class="text-xl font-bold mb-4">模拟考试</h3>
                         <p class="text-neutral mb-6">模拟真实考试环境，检验您的学习成果。</p>
                         
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6" id="exam-entry-grid">
                             <div class="border border-gray-200 rounded-lg p-6 hover:border-primary transition-all">
                                 <h4 class="font-bold mb-3">标准考试</h4>
                                 <p class="text-neutral mb-4">100道题，45分钟</p>
@@ -860,8 +965,10 @@
                                 <button class="btn btn-primary w-full" data-go-exam="quick">开始测试</button>
                             </div>
                         </div>
+
+                        <div id="exam-runtime" class="hidden mb-6"></div>
                         
-                        <div class="border-t border-gray-200 pt-6">
+                        <div class="border-t border-gray-200 pt-6" id="exam-history-section">
                             <h4 class="font-bold mb-4">历史考试记录</h4>
                             <div class="overflow-x-auto">
                                 <table class="w-full">
@@ -1002,7 +1109,7 @@
                 <div id="crash-course" class="page-content hidden">
                     <div class="card mb-6">
                         <h3 class="text-xl font-bold mb-4">考前冲刺</h3>
-                        <p class="text-neutral mb-6">针对即将参加考试的学员，提供高强度的考前冲刺训练。</p>
+                        <p class="text-neutral mb-6">根据考试倒计时、错题与薄弱知识点，自动生成冲刺任务。</p>
                         
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                             <div class="border border-gray-200 rounded-lg p-6 hover:border-primary transition-all">
@@ -1022,27 +1129,8 @@
                                 <button class="btn btn-primary w-full" data-go-crash="1d">开始强化</button>
                             </div>
                         </div>
-                        
-                        <div class="border-t border-gray-200 pt-6">
-                            <h4 class="font-bold mb-4">高频考点</h4>
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div class="border border-gray-200 rounded-lg p-4 hover:border-primary transition-all">
-                                    <h5 class="font-medium mb-2">交通标志</h5>
-                                    <p class="text-sm text-neutral mb-3">常见交通标志识别与记忆</p>
-                                    <button class="btn btn-outline w-full">开始练习</button>
-                                </div>
-                                <div class="border border-gray-200 rounded-lg p-4 hover:border-primary transition-all">
-                                    <h5 class="font-medium mb-2">安全文明</h5>
-                                    <p class="text-sm text-neutral mb-3">安全行车与文明驾驶</p>
-                                    <button class="btn btn-outline w-full">开始练习</button>
-                                </div>
-                                <div class="border border-gray-200 rounded-lg p-4 hover:border-primary transition-all">
-                                    <h5 class="font-medium mb-2">紧急情况</h5>
-                                    <p class="text-sm text-neutral mb-3">突发情况处理方法</p>
-                                    <button class="btn btn-outline w-full">开始练习</button>
-                                </div>
-                            </div>
-                        </div>
+
+                        <div id="crash-course-box"></div>
                     </div>
                 </div>
                 
@@ -1198,105 +1286,9 @@
                 <div id="report" class="page-content hidden">
                     <div class="card mb-6">
                         <h3 class="text-xl font-bold mb-4">学习报告</h3>
-                        <p class="text-neutral mb-6">全面分析您的学习情况，提供详细的学习数据和改进建议。</p>
-                        
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                            <div class="card">
-                                <h4 class="font-bold mb-3">学习概览</h4>
-                                <div class="space-y-3">
-                                    <div>
-                                        <div class="flex justify-between mb-1">
-                                            <span>总学习时长</span>
-                                            <span>50小时</span>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between mb-1">
-                                            <span>总做题数</span>
-                                            <span>1,250题</span>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between mb-1">
-                                            <span>正确率</span>
-                                            <span>82%</span>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between mb-1">
-                                            <span>模拟考试次数</span>
-                                            <span>8次</span>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between mb-1">
-                                            <span>平均得分</span>
-                                            <span>78分</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="card">
-                                <h4 class="font-bold mb-3">知识掌握度</h4>
-                                <div class="space-y-3">
-                                    <div>
-                                        <div class="flex justify-between mb-1">
-                                            <span>交通法规</span>
-                                            <span>78%</span>
-                                        </div>
-                                        <div class="progress-bar">
-                                            <div class="progress-bar-fill" style="width: 78%"></div>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between mb-1">
-                                            <span>安全文明</span>
-                                            <span>45%</span>
-                                        </div>
-                                        <div class="progress-bar">
-                                            <div class="progress-bar-fill" style="width: 45%"></div>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between mb-1">
-                                            <span>标志标线</span>
-                                            <span>85%</span>
-                                        </div>
-                                        <div class="progress-bar">
-                                            <div class="progress-bar-fill" style="width: 85%"></div>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between mb-1">
-                                            <span>紧急情况</span>
-                                            <span>40%</span>
-                                        </div>
-                                        <div class="progress-bar">
-                                            <div class="progress-bar-fill" style="width: 40%"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="card">
-                                <h4 class="font-bold mb-3">学习趋势</h4>
-                                <div class="h-48">
-                                    <canvas id="trendChart"></canvas>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="border-t border-gray-200 pt-6">
-                            <h4 class="font-bold mb-4">AI学习建议</h4>
-                            <div class="bg-gray-50 p-4 rounded-lg">
-                                <p class="mb-3">基于您的学习数据，AI系统为您提供以下建议：</p>
-                                <ul class="list-disc pl-5 space-y-2">
-                                    <li>重点加强安全文明和紧急情况处理的学习</li>
-                                    <li>建议每天至少练习30分钟，保持学习连续性</li>
-                                    <li>多做模拟考试，熟悉考试节奏和题型</li>
-                                    <li>定期回顾错题，巩固薄弱知识点</li>
-                                </ul>
-                            </div>
-                        </div>
+                        <p class="text-neutral mb-6">基于真实做题、模考、错因与复习数据生成的阶段报告。</p>
+                        <div id="report-box"></div>
+                        <div class="hidden"><canvas id="trendChart"></canvas></div>
                     </div>
                 </div>
             </div>
@@ -1364,6 +1356,21 @@
                 <button id="settings-reset" class="btn btn-outline">恢复默认</button>
                 <button id="settings-save" class="btn btn-primary">保存设置</button>
             </div>
+        </div>
+    </div>
+
+    <div id="student-manage-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg p-6 w-full max-w-3xl">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold">学员管理</h3>
+                <button class="btn btn-secondary" id="student-manage-close">关闭</button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                <input id="student-manage-search" class="border border-gray-300 rounded-md px-3 py-2" placeholder="搜索姓名/手机号" />
+                <div class="text-sm text-neutral flex items-center" id="student-manage-summary">共 0 名学员</div>
+            </div>
+            <div id="student-manage-list" class="space-y-2 max-h-[55vh] overflow-y-auto"></div>
+            <p id="student-manage-tip" class="text-sm text-error mt-3"></p>
         </div>
     </div>
     
