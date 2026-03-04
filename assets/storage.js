@@ -11,7 +11,8 @@ export const LS_KEYS = {
   DAILY: 'qa.daily',            // { byDate: { [YYYY-MM-DD]: { done:number, correct:number } } }
   KNOWLEDGE: 'qa.knowledgeMastery', // { [knowledgeId]: { mastery:number, attempts:number, correct:number, lastTs:number } }
   DIAGNOSIS: 'qa.diagnosis', // { status, queue, cursor, answers, startedAt, finishedAt }
-  SETTINGS: 'qa.settings' // { diagnosisShowAnalysis:boolean }
+  SETTINGS: 'qa.settings', // { diagnosisShowAnalysis:boolean, smartLockN:number }
+  WRONG_REASON: 'qa.wrongReason' // { [questionId]: 'memory'|'understand'|'careless'|'trap' }
 };
 
 function safeJsonParse(raw, fallback) {
@@ -227,11 +228,29 @@ export function setDiagnosis(d) {
 }
 
 export function getSettings() {
-  return safeJsonParse(localStorage.getItem(LS_KEYS.SETTINGS), { diagnosisShowAnalysis: true });
+  return safeJsonParse(localStorage.getItem(LS_KEYS.SETTINGS), {
+    diagnosisShowAnalysis: true,
+    smartLockN: 5
+  });
 }
 
 export function setSettings(s) {
   localStorage.setItem(LS_KEYS.SETTINGS, JSON.stringify(s || {}));
+}
+
+export function getWrongReason() {
+  return safeJsonParse(localStorage.getItem(LS_KEYS.WRONG_REASON), {});
+}
+
+export function setWrongReason(map) {
+  localStorage.setItem(LS_KEYS.WRONG_REASON, JSON.stringify(map || {}));
+}
+
+export function setWrongReasonForQuestion(questionId, reason) {
+  const map = getWrongReason();
+  map[questionId] = reason;
+  setWrongReason(map);
+  return map;
 }
 
 export function clearDiagnosis() {

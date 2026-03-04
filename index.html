@@ -656,10 +656,18 @@
                                     <button class="btn btn-secondary" id="btn-next">下一题<i class="fa fa-chevron-right ml-2"></i></button>
                                     <button class="btn btn-outline" id="btn-fav"><i class="fa fa-star-o mr-2"></i>收藏</button>
                                 </div>
-                                <div class="flex gap-2">
+                                <div class="flex gap-2 items-center">
                                     <button class="btn btn-secondary" data-practice-mode="all">顺序</button>
                                     <button class="btn btn-secondary" data-practice-mode="smart">智能</button>
                                     <button class="btn btn-secondary" data-practice-mode="wrong">错题</button>
+                                    <div class="hidden md:flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 text-sm text-neutral" id="smart-lock-control">
+                                        <span>锁定</span>
+                                        <select id="smart-lock-n" class="border border-gray-200 rounded px-2 py-1">
+                                            <option value="3">3题</option>
+                                            <option value="5" selected>5题</option>
+                                            <option value="8">8题</option>
+                                        </select>
+                                    </div>
                                     <button class="btn btn-secondary hidden" id="btn-knowledge-summary">专项小结</button>
                                 </div>
                             </div>
@@ -691,6 +699,29 @@
                                     <button id="knowledge-summary-next" class="btn btn-primary">继续（下一步）</button>
                                 </div>
                             </div>
+                        </div>
+
+                        <div class="mt-6 hidden" id="wrong-reason">
+                            <h4 class="font-bold mb-2">错因选择（可选，但强烈建议选）</h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-neutral">
+                                <label class="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:border-primary">
+                                    <input type="radio" name="wrongReason" value="memory" />
+                                    <span>没记住规则（记忆错误）</span>
+                                </label>
+                                <label class="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:border-primary">
+                                    <input type="radio" name="wrongReason" value="understand" />
+                                    <span>理解偏差（理解错误）</span>
+                                </label>
+                                <label class="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:border-primary">
+                                    <input type="radio" name="wrongReason" value="careless" />
+                                    <span>粗心/看错题干</span>
+                                </label>
+                                <label class="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 cursor-pointer hover:border-primary">
+                                    <input type="radio" name="wrongReason" value="trap" />
+                                    <span>陷阱/易混淆点</span>
+                                </label>
+                            </div>
+                            <p class="text-xs text-neutral mt-2">用于后续智能推荐更准确：比如“你在灯光题多为距离陷阱”。</p>
                         </div>
 
                         <div class="mt-6">

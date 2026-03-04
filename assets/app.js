@@ -17,7 +17,9 @@ import {
   setDiagnosis,
   clearDiagnosis,
   getSettings,
-  setSettings
+  setSettings,
+  setWrongReasonForQuestion,
+  getWrongReason
 } from './storage.js';
 
 let QUESTIONS = [];
@@ -207,22 +209,39 @@ function smartScoreQuestion(q, km, progress, now) {
   return base * donePenalty;
 }
 
-function pickSmartIndex() {
+let smartLock = { kid: '', remain: 0 };
+
+function pickSmartIndex(preferKnowledgeId = '') {
   const progress = getProgress();
   const km = getKnowledgeMastery();
   const now = Date.now();
 
-  const unanswered = QUESTIONS.filter(q => !progress.answered?.[q.id]);
-  const pool = unanswered.length ? unanswered : QUESTIONS;
+  const settings = getSettings();
+  const lockN = Number(settings.smartLockN || 5);
 
-  let best = pool[0];
+  // 1) 若指定 preferKnowledgeId，则优先在该知识点内挑分最高题
+  // 2) 否则若存在锁定 kid 且 remain>0，则在锁定知识点内挑
+  let kid = preferKnowledgeId || '';
+  if (!kid && smartLock.kid && smartLock.remain > 0) kid = smartLock.kid;
+
+  const unanswered = QUESTIONS.filter(q => !progress.answered?.[q.id]);
+  const poolBase = unanswered.length ? unanswered : QUESTIONS;
+  const pool = kid ? poolBase.filter(q => (q.knowledgeId || 'law.basic') === kid) : poolBase;
+
+  let best = (pool.length ? pool[0] : poolBase[0]);
   let bestScore = -Infinity;
-  for (const q of pool) {
+  for (const q of (pool.length ? pool : poolBase)) {
     const s = smartScoreQuestion(q, km, progress, now);
     if (s > bestScore) {
       bestScore = s;
       best = q;
     }
+  }
+
+  // 初始化/刷新锁定：当没有锁定时，锁定到 best 的知识点
+  const bestKid = best.knowledgeId || 'law.basic';
+  if (!smartLock.kid || smartLock.remain <= 0) {
+    smartLock = { kid: bestKid, remain: lockN };
   }
 
   const idx = QUESTIONS.findIndex(x => x.id === best.id);
@@ -268,7 +287,9 @@ function renderQuestion() {
     if (practiceMode === 'smart') {
       const freq = Number(q.frequency || 3);
       const m = (typeof mastery === 'number') ? mastery : 0.5;
-      reasonEl.textContent = `推荐原因：高频权重 ${freq}/5 + 当前掌握度 ${(m * 100).toFixed(0)}%（优先补短板）`;
+      const settings = getSettings();
+      const lockN = Number(settings.smartLockN || 5);
+      reasonEl.textContent = `推荐原因：高频权重 ${freq}/5 + 当前掌握度 ${(m * 100).toFixed(0)}% · 锁定知识点：${smartLock.kid ? (KNOWLEDGE_DICT[smartLock.kid] || smartLock.kid) : '—'}（剩余${Math.max(0, smartLock.remain)}题 / 每组${lockN}题）`;
       reasonEl.classList.remove('hidden');
     } else if (practiceMode === 'knowledge') {
       reasonEl.textContent = `专项练习：${knowledgeTitle || kName} · 剩余 ${Math.max(0, getCurrentTotal() - (currentIndex + 1))} 题`;
@@ -315,6 +336,8 @@ function renderQuestion() {
 
       // 智能模式：答完自动跳下一题（加速）
       if (practiceMode === 'smart') {
+        // 消耗一次锁定计数
+        if (smartLock.remain > 0) smartLock.remain -= 1;
         currentIndex = pickSmartIndex();
       }
 
@@ -345,6 +368,20 @@ function renderQuestion() {
     qs('#q-analysis-text').textContent = q.analysis || '暂无解析';
   } else {
     analysisBox.classList.add('hidden');
+  }
+
+  // 错因选择（仅在答错后展示）
+  const reasonBox = qs('#wrong-reason');
+  if (reasonBox) {
+    if (locked && answered && answered.correct === false) {
+      reasonBox.classList.remove('hidden');
+      const saved = getWrongReason()?.[q.id] || '';
+      qsa('[name="wrongReason"]').forEach(r => {
+        r.checked = (r.value === saved);
+      });
+    } else {
+      reasonBox.classList.add('hidden');
+    }
   }
 
   // 专项模式：到最后一题后显示小结入口
@@ -434,6 +471,24 @@ function bindEvents() {
     }
     renderQuestion();
   });
+
+  // 智能锁定控制
+  const smartSel = qs('#smart-lock-n');
+  if (smartSel) {
+    const settings = getSettings();
+    smartSel.value = String(settings.smartLockN || 5);
+    smartSel.addEventListener('change', () => {
+      const s = getSettings();
+      s.smartLockN = Number(smartSel.value || 5);
+      setSettings(s);
+      // 重置当前锁定，使新配置立刻生效
+      smartLock = { kid: '', remain: 0 };
+      if (practiceMode === 'smart') {
+        currentIndex = pickSmartIndex();
+        renderQuestion();
+      }
+    });
+  }
 
   // 专项小结
   const summaryBtn = qs('#btn-knowledge-summary');
@@ -530,6 +585,15 @@ function bindEvents() {
   qs('#q-note').addEventListener('input', (e) => {
     const q = getCurrentQuestion();
     setNote(q.id, e.target.value);
+  });
+
+  // 错因选择存储
+  qsa('[name="wrongReason"]').forEach(r => {
+    r.addEventListener('change', () => {
+      const q = getCurrentQuestion();
+      if (!q) return;
+      setWrongReasonForQuestion(q.id, r.value);
+    });
   });
 
   // 从个性学习页/首页进入练题
@@ -962,6 +1026,23 @@ function renderDiagnosisReport() {
   const topWeak = rows.slice(0, 10);
   const topROI = [...rows].sort((a,b) => b.roi - a.roi).slice(0, 5);
 
+  // 错因统计
+  const reasonMap = getWrongReason();
+  const reasons = Object.values(reasonMap || {});
+  const reasonCount = {
+    memory: reasons.filter(x => x === 'memory').length,
+    understand: reasons.filter(x => x === 'understand').length,
+    careless: reasons.filter(x => x === 'careless').length,
+    trap: reasons.filter(x => x === 'trap').length
+  };
+  const totalReason = Object.values(reasonCount).reduce((a,b)=>a+b,0);
+  const reasonLabel = {
+    memory: '记忆错误',
+    understand: '理解错误',
+    careless: '粗心',
+    trap: '陷阱'
+  };
+
   report.innerHTML = `
     <div class="card mb-6">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -977,8 +1058,8 @@ function renderDiagnosisReport() {
         </div>
       </div>
 
-      <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div>
+      <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="lg:col-span-1">
           <h5 class="font-bold mb-3">提分清单 TOP5（ROI）</h5>
           <div class="space-y-3">
             ${topROI.map(r => {
@@ -1001,7 +1082,30 @@ function renderDiagnosisReport() {
           </div>
         </div>
 
-        <div>
+        <div class="lg:col-span-1">
+          <h5 class="font-bold mb-3">错因分布（基于你选择的错因）</h5>
+          <div class="border border-gray-200 rounded-lg p-4">
+            ${totalReason ? Object.keys(reasonCount).map(k => {
+              const n = reasonCount[k];
+              const pct = Math.round((n/totalReason)*100);
+              return `
+                <div class="mb-3">
+                  <div class="flex justify-between text-sm text-neutral mb-1">
+                    <span>${reasonLabel[k]}</span>
+                    <span>${n}（${pct}%）</span>
+                  </div>
+                  <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+                </div>
+              `;
+            }).join('') : '<p class="text-neutral">暂无错因数据：建议在练题答错后选择错因，智能推荐会更准。</p>'}
+          </div>
+          <div class="bg-gray-50 p-4 rounded-lg mt-4 text-sm text-neutral">
+            <p><strong>建议：</strong></p>
+            <p>记忆错误多 → 多做专项+写口诀；理解错误多 → 多看解析与规则卡；粗心多 → 开启“关键词慢读”；陷阱多 → 做“易混淆”专项。</p>
+          </div>
+        </div>
+
+        <div class="lg:col-span-1">
           <h5 class="font-bold mb-3">薄弱知识点 TOP10</h5>
           <div class="space-y-3">
             ${topWeak.map(r => {
@@ -1013,7 +1117,7 @@ function renderDiagnosisReport() {
                       <p class="font-medium">${r.name}</p>
                       <p class="text-sm text-neutral mt-1">掌握度：${pct}%</p>
                     </div>
-                    <div class="w-40">
+                    <div class="w-32">
                       <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
                     </div>
                   </div>
