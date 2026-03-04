@@ -309,6 +309,10 @@
                             <i class="fa fa-book w-5 text-center"></i>
                             <span>个性学习</span>
                         </div>
+                        <div class="nav-item" data-target="practice">
+                            <i class="fa fa-pencil w-5 text-center"></i>
+                            <span>练题</span>
+                        </div>
                         <div class="nav-item" data-target="exam">
                             <i class="fa fa-pencil-square-o w-5 text-center"></i>
                             <span>模拟考试</span>
@@ -412,22 +416,12 @@
                     
                     <!-- 学习概览 -->
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                        <div class="card" id="plan-summary"></div>
                         <div class="card">
                             <div class="flex items-center justify-between">
                                 <div>
-                                    <p class="text-neutral">学习天数</p>
-                                    <h4 class="text-2xl font-bold mt-1">25</h4>
-                                </div>
-                                <div class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                                    <i class="fa fa-calendar text-primary text-xl"></i>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card">
-                            <div class="flex items-center justify-between">
-                                <div>
-                                    <p class="text-neutral">做题总数</p>
-                                    <h4 class="text-2xl font-bold mt-1">1,250</h4>
+                                    <p class="text-neutral">已做题</p>
+                                    <h4 class="text-2xl font-bold mt-1"><span id="stat-done">0</span>/<span id="stat-total">0</span></h4>
                                 </div>
                                 <div class="w-12 h-12 rounded-full bg-success/10 flex items-center justify-center">
                                     <i class="fa fa-list-alt text-success text-xl"></i>
@@ -438,7 +432,7 @@
                             <div class="flex items-center justify-between">
                                 <div>
                                     <p class="text-neutral">正确率</p>
-                                    <h4 class="text-2xl font-bold mt-1">82%</h4>
+                                    <h4 class="text-2xl font-bold mt-1" id="stat-acc">0%</h4>
                                 </div>
                                 <div class="w-12 h-12 rounded-full bg-warning/10 flex items-center justify-center">
                                     <i class="fa fa-check-circle text-warning text-xl"></i>
@@ -449,7 +443,7 @@
                             <div class="flex items-center justify-between">
                                 <div>
                                     <p class="text-neutral">模拟次数</p>
-                                    <h4 class="text-2xl font-bold mt-1">8</h4>
+                                    <h4 class="text-2xl font-bold mt-1">0</h4>
                                 </div>
                                 <div class="w-12 h-12 rounded-full bg-error/10 flex items-center justify-center">
                                     <i class="fa fa-file-text-o text-error text-xl"></i>
@@ -472,7 +466,7 @@
                                         <p class="text-sm text-neutral">预计用时 20分钟</p>
                                     </div>
                                 </div>
-                                <button class="btn btn-primary">开始练习</button>
+                                <button class="btn btn-primary" data-go-practice="1">开始练习</button>
                             </div>
                             <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-primary transition-all">
                                 <div class="flex items-center gap-3">
@@ -633,7 +627,7 @@
                                             <p class="text-sm text-neutral">预计用时 20分钟</p>
                                         </div>
                                     </div>
-                                    <button class="btn btn-primary">开始练习</button>
+                                    <button class="btn btn-primary" data-go-practice="1">开始练习</button>
                                 </div>
                                 <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-primary transition-all">
                                     <div class="flex items-center gap-3">
@@ -645,7 +639,7 @@
                                             <p class="text-sm text-neutral">预计用时 15分钟</p>
                                         </div>
                                     </div>
-                                    <button class="btn btn-primary">开始练习</button>
+                                    <button class="btn btn-primary" data-go-practice="1">开始练习</button>
                                 </div>
                                 <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:border-primary transition-all">
                                     <div class="flex items-center gap-3">
@@ -657,7 +651,7 @@
                                             <p class="text-sm text-neutral">预计用时 10分钟</p>
                                         </div>
                                     </div>
-                                    <button class="btn btn-primary">开始练习</button>
+                                    <button class="btn btn-primary" data-go-practice="1">开始练习</button>
                                 </div>
                             </div>
                         </div>
@@ -700,6 +694,43 @@
                     </div>
                 </div>
                 
+                <!-- 练题 -->
+                <div id="practice" class="page-content hidden">
+                    <div class="card mb-6">
+                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                            <div>
+                                <h3 class="text-xl font-bold">练题</h3>
+                                <p class="text-neutral mt-1">科目一（Mock题库） · <span id="q-type">-</span> · 题目 <span id="q-index">-</span>/<span id="q-total">-</span> · <span class="text-xs text-neutral">ID: <span id="q-id">-</span></span></p>
+                                <div class="mt-2 flex flex-wrap gap-2" id="q-tags"></div>
+                            </div>
+                            <div class="flex gap-2">
+                                <button class="btn btn-secondary" id="btn-prev"><i class="fa fa-chevron-left mr-2"></i>上一题</button>
+                                <button class="btn btn-secondary" id="btn-next">下一题<i class="fa fa-chevron-right ml-2"></i></button>
+                                <button class="btn btn-outline" id="btn-fav"><i class="fa fa-star-o mr-2"></i>收藏</button>
+                            </div>
+                        </div>
+
+                        <div class="mt-6">
+                            <p class="text-lg font-medium" id="q-stem">-</p>
+                        </div>
+
+                        <div class="mt-4 space-y-3" id="q-options"></div>
+
+                        <div class="mt-4 hidden" id="q-analysis">
+                            <div class="p-4 rounded-lg border border-gray-200 bg-gray-50">
+                                <div class="mb-2" id="q-result"></div>
+                                <p class="text-sm"><strong>解析：</strong><span id="q-analysis-text"></span></p>
+                            </div>
+                        </div>
+
+                        <div class="mt-6">
+                            <h4 class="font-bold mb-2">笔记</h4>
+                            <textarea id="q-note" class="w-full border border-gray-300 rounded-md px-4 py-3" rows="3" placeholder="写下你对这道题的理解/口诀/易错点（保存在本地浏览器）"></textarea>
+                            <p class="text-xs text-neutral mt-2">提示：笔记、收藏、做题记录都保存在本地 localStorage。</p>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 模拟考试 -->
                 <div id="exam" class="page-content hidden">
                     <div class="card mb-6">
@@ -1028,6 +1059,12 @@
             month: 'long',
             day: 'numeric'
         });
+
+        // 练题/本地数据逻辑（ESM）
+    </script>
+    <script type="module" src="./assets/app.js"></script>
+    <script>
+
         
         // =============================
         // 向导模式（智能模式）
