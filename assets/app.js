@@ -501,8 +501,11 @@ function startWrongPractice() {
 // ======================
 // 智能诊断（50题）
 // ======================
+const DIAG_TOTAL = 100;
+const DIAG_DURATION_SEC = 45 * 60;
+
 function buildDiagnosisQueue() {
-  // 半自适应：先覆盖知识点，再偏薄弱高频
+  // 半自适应：先覆盖知识点，再偏薄弱高频（不足则循环补齐）
   const km = getKnowledgeMastery();
   const now = Date.now();
   const progress = getProgress();
@@ -531,17 +534,21 @@ function buildDiagnosisQueue() {
     .sort((a, b) => b.s - a.s)
     .map(x => x.q);
 
-  const queue = [...cover, ...rest].slice(0, 50).map(q => q.id);
+  const queue = [...cover, ...rest].slice(0, DIAG_TOTAL).map(q => q.id);
 
-  // 若题库不足50，允许重复（这里简单补齐：循环填充 rest）
+  // 若题库不足 DIAG_TOTAL，允许重复（循环补齐）
   let i = 0;
-  while (queue.length < 50 && rest.length) {
-    queue.push(rest[i % rest.length].id);
+  const fallback = rest.length ? rest : QUESTIONS;
+  while (queue.length < DIAG_TOTAL && fallback.length) {
+    queue.push(fallback[i % fallback.length].id);
     i += 1;
+    if (i > 10000) break;
   }
 
   return queue;
 }
+
+let diagTimer = null;
 
 function startDiagnosis(reset = false) {
   if (reset) clearDiagnosis();
@@ -555,10 +562,12 @@ function startDiagnosis(reset = false) {
       cursor: 0,
       answers: {},
       startedAt: Date.now(),
-      finishedAt: 0
+      finishedAt: 0,
+      durationSec: DIAG_DURATION_SEC
     };
   } else {
     d.status = 'running';
+    d.durationSec = d.durationSec || DIAG_DURATION_SEC;
   }
 
   setDiagnosis(d);
@@ -584,7 +593,7 @@ function renderDiagnosisHome() {
   const box = qs('#diagnosis-box');
   if (!box) return;
 
-  const total = (d.queue && d.queue.length) ? d.queue.length : 50;
+  const total = (d.queue && d.queue.length) ? d.queue.length : DIAG_TOTAL;
   const cur = d.cursor || 0;
 
   let statusText = '未开始';
@@ -596,9 +605,9 @@ function renderDiagnosisHome() {
   box.innerHTML = `
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
       <div>
-        <h4 class="text-lg font-bold">50题智能诊断</h4>
+        <h4 class="text-lg font-bold">100题智能诊断（模拟考试）</h4>
         <p class="text-neutral mt-1">状态：<span class="font-medium">${statusText}</span> · 考试日期：<span class="font-medium">${examDate || '未设置'}</span></p>
-        <p class="text-sm text-neutral mt-2">完成后将输出薄弱知识点TOP、提分清单，并可一键进入智能加速练习。</p>
+        <p class="text-sm text-neutral mt-2">说明：当前为 Mock 题库，若题量不足会循环补齐到100题用于流程演示。完成后将输出薄弱知识点TOP、提分清单，并可一键进入智能加速练习。</p>
       </div>
       <div class="flex gap-2">
         ${d.status === 'running' ? '<button class="btn btn-primary" id="btn-diag-continue">继续诊断</button>' : '<button class="btn btn-primary" id="btn-diag-start">开始诊断</button>'}
@@ -626,7 +635,7 @@ function renderDiagnosisQuiz() {
   if (report) report.classList.add('hidden');
   if (area) area.classList.remove('hidden');
 
-  const total = d.queue.length || 50;
+  const total = d.queue.length || DIAG_TOTAL;
   const idx = (d.cursor || 0) + 1;
 
   if (!q) {
@@ -638,12 +647,13 @@ function renderDiagnosisQuiz() {
 
   area.innerHTML = `
     <div class="card mb-6">
-      <div class="flex items-center justify-between gap-4">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h4 class="text-lg font-bold">诊断中（${idx}/${total}）</h4>
           <p class="text-sm text-neutral mt-1">当前知识点：<span class="font-medium">${kName}</span> · 题目ID：${q.id}</p>
         </div>
-        <div class="flex gap-2">
+        <div class="flex items-center gap-3">
+          <div class="px-3 py-2 rounded-lg bg-primary/10 text-primary font-medium" id="diag-timer">倒计时：--:--</div>
           <button class="btn btn-secondary" id="btn-diag-exit">退出（可继续）</button>
         </div>
       </div>
@@ -669,8 +679,34 @@ function renderDiagnosisQuiz() {
     </div>
   `;
 
+  function formatSec(sec) {
+    const s = Math.max(0, Math.floor(sec));
+    const mm = String(Math.floor(s / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    return `${mm}:${ss}`;
+  }
+
+  function tick() {
+    const d2 = getDiagnosis();
+    if (d2.status !== 'running') return;
+    const elapsed = Math.floor((Date.now() - (d2.startedAt || Date.now())) / 1000);
+    const left = (d2.durationSec || DIAG_DURATION_SEC) - elapsed;
+    const el = qs('#diag-timer');
+    if (el) el.textContent = `倒计时：${formatSec(left)}`;
+    if (left <= 0) {
+      // 时间到：直接生成报告
+      finishDiagnosis();
+      return;
+    }
+  }
+
+  if (diagTimer) clearInterval(diagTimer);
+  tick();
+  diagTimer = setInterval(tick, 1000);
+
   qs('#btn-diag-exit')?.addEventListener('click', () => {
-    // 回到诊断首页状态
+    // 回到诊断首页状态（保留进度）
+    if (diagTimer) clearInterval(diagTimer);
     area.classList.add('hidden');
     renderDiagnosisHome();
   });
@@ -723,7 +759,13 @@ function renderDiagnosisQuiz() {
     // 下一题
     renderDiagnosisQuiz();
   });
+
+  // 若已全部做完
+  if ((d.cursor || 0) >= total) {
+    finishDiagnosis();
+  }
 }
+
 
 function calcPredictedScoreFromMastery() {
   // 加权预测：知识点掌握度按“题库中该知识点 frequency 总和”加权

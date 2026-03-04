@@ -25,7 +25,7 @@ python3 -m http.server 5173
 - `qa.wrongStreak`：错题消除计数（同一题连续答对次数）
 - `qa.daily`：按天统计（done/correct）
 - `qa.knowledgeMastery`：知识点掌握度（mastery/attempts/correct/lastTs）
-- `qa.diagnosis`：50题诊断状态（queue/cursor/answers/startedAt/finishedAt）
+- `qa.diagnosis`：100题诊断状态（queue/cursor/answers/startedAt/finishedAt/durationSec）
 
 ## 如何清空本地数据
 在浏览器控制台执行：

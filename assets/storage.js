@@ -216,7 +216,8 @@ export function getDiagnosis() {
     cursor: 0,
     answers: {},
     startedAt: 0,
-    finishedAt: 0
+    finishedAt: 0,
+    durationSec: 2700
   });
 }
 
