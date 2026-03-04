@@ -15,7 +15,9 @@ import {
   getKnowledgeMastery,
   getDiagnosis,
   setDiagnosis,
-  clearDiagnosis
+  clearDiagnosis,
+  getSettings,
+  setSettings
 } from './storage.js';
 
 let QUESTIONS = [];
@@ -645,6 +647,8 @@ function renderDiagnosisQuiz() {
 
   const kName = KNOWLEDGE_DICT[q.knowledgeId] || '未标注知识点';
 
+  const settings = getSettings();
+
   area.innerHTML = `
     <div class="card mb-6">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -652,7 +656,11 @@ function renderDiagnosisQuiz() {
           <h4 class="text-lg font-bold">诊断中（${idx}/${total}）</h4>
           <p class="text-sm text-neutral mt-1">当前知识点：<span class="font-medium">${kName}</span> · 题目ID：${q.id}</p>
         </div>
-        <div class="flex items-center gap-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <label class="flex items-center gap-2 text-sm text-neutral bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+            <input type="checkbox" id="diag-show-analysis" ${settings.diagnosisShowAnalysis ? 'checked' : ''} />
+            <span>显示解析</span>
+          </label>
           <div class="px-3 py-2 rounded-lg bg-primary/10 text-primary font-medium" id="diag-timer">倒计时：--:--</div>
           <button class="btn btn-secondary" id="btn-diag-exit">退出（可继续）</button>
         </div>
@@ -674,6 +682,12 @@ function renderDiagnosisQuiz() {
           <div class="flex justify-end mt-4">
             <button class="btn btn-primary" id="btn-diag-next">下一题</button>
           </div>
+        </div>
+      </div>
+
+      <div class="mt-4 hidden" id="diag-next-only">
+        <div class="flex justify-end">
+          <button class="btn btn-primary" id="btn-diag-next2">下一题</button>
         </div>
       </div>
     </div>
@@ -703,6 +717,13 @@ function renderDiagnosisQuiz() {
   if (diagTimer) clearInterval(diagTimer);
   tick();
   diagTimer = setInterval(tick, 1000);
+
+  // 设置开关
+  qs('#diag-show-analysis')?.addEventListener('change', (e) => {
+    const s = getSettings();
+    s.diagnosisShowAnalysis = !!e.target.checked;
+    setSettings(s);
+  });
 
   qs('#btn-diag-exit')?.addEventListener('click', () => {
     // 回到诊断首页状态（保留进度）
@@ -740,25 +761,34 @@ function renderDiagnosisQuiz() {
       // 诊断也更新知识点掌握度（同一套模型）
       updateKnowledgeMastery(q.knowledgeId, correct, { frequency: q.frequency, difficulty: q.difficulty });
 
-      // 显示解析并等待“下一题”
-      const box = qs('#diag-analysis');
-      box.classList.remove('hidden');
-      qs('#diag-analysis-text').textContent = q.analysis || '暂无解析';
-      qs('#diag-result').innerHTML = correct
-        ? '<span class="text-success font-medium"><i class="fa fa-check-circle mr-2"></i>回答正确</span>'
-        : '<span class="text-error font-medium"><i class="fa fa-times-circle mr-2"></i>回答错误</span>';
+      const s = getSettings();
+      if (s.diagnosisShowAnalysis) {
+        // 显示解析并等待“下一题”
+        const box = qs('#diag-analysis');
+        box.classList.remove('hidden');
+        qs('#diag-analysis-text').textContent = q.analysis || '暂无解析';
+        qs('#diag-result').innerHTML = correct
+          ? '<span class="text-success font-medium"><i class="fa fa-check-circle mr-2"></i>回答正确</span>'
+          : '<span class="text-error font-medium"><i class="fa fa-times-circle mr-2"></i>回答错误</span>';
+      } else {
+        // 不显示解析：直接给“下一题”按钮
+        const nextOnly = qs('#diag-next-only');
+        nextOnly.classList.remove('hidden');
+      }
     });
 
     optWrap.appendChild(item);
   });
 
-  qs('#btn-diag-next')?.addEventListener('click', () => {
+  function goNext() {
     const d2 = getDiagnosis();
     d2.cursor = (d2.cursor || 0) + 1;
     setDiagnosis(d2);
-    // 下一题
     renderDiagnosisQuiz();
-  });
+  }
+
+  qs('#btn-diag-next')?.addEventListener('click', goNext);
+  qs('#btn-diag-next2')?.addEventListener('click', goNext);
 
   // 若已全部做完
   if ((d.cursor || 0) >= total) {

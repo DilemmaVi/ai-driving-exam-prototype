@@ -39,5 +39,6 @@ localStorage.removeItem('qa.wrongStreak');
 localStorage.removeItem('qa.daily');
 localStorage.removeItem('qa.knowledgeMastery');
 localStorage.removeItem('qa.diagnosis');
+localStorage.removeItem('qa.settings');
 ```
 或在浏览器设置里清空站点数据。
