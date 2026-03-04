@@ -466,11 +466,15 @@
             <!-- 顶部栏 -->
             <header class="bg-white border-b border-gray-200 p-4 flex justify-between items-center">
                 <div class="flex items-center gap-4">
-                    <h2 class="text-xl font-bold" id="page-title">首页</h2>
+                    <div>
+                        <h2 class="text-xl font-bold" id="page-title">首页</h2>
+                        <p class="text-xs text-neutral mt-1" id="context-brief">城市：深圳 · 车型：C1 · 科目：科目一</p>
+                    </div>
                     <div class="hidden md:flex items-center gap-2">
                         <select id="top-student-select" class="border border-gray-300 rounded-md px-3 py-2 text-sm min-w-[220px]">
                             <option value="">当前学员</option>
                         </select>
+                        <button class="btn btn-outline text-sm px-3 py-2" id="btn-context-switch">城市/车型/科目</button>
                         <button class="btn btn-secondary text-sm px-3 py-2" id="btn-student-manage">学员管理</button>
                     </div>
                 </div>
@@ -1371,6 +1375,47 @@
             </div>
             <div id="student-manage-list" class="space-y-2 max-h-[55vh] overflow-y-auto"></div>
             <p id="student-manage-tip" class="text-sm text-error mt-3"></p>
+        </div>
+    </div>
+
+    <div id="context-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg p-6 w-full max-w-md">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold">切换城市/车型/科目</h3>
+                <button class="btn btn-secondary" id="context-cancel">关闭</button>
+            </div>
+            <div class="space-y-3">
+                <label class="text-sm text-neutral block">城市
+                    <select id="ctx-city" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2">
+                        <option value="深圳">深圳</option>
+                        <option value="广州">广州</option>
+                        <option value="上海">上海</option>
+                        <option value="北京">北京</option>
+                        <option value="杭州">杭州</option>
+                    </select>
+                </label>
+                <label class="text-sm text-neutral block">车型
+                    <select id="ctx-car" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2">
+                        <option value="C1">C1</option>
+                        <option value="C2">C2</option>
+                        <option value="A1">A1</option>
+                        <option value="A2">A2</option>
+                        <option value="B1">B1</option>
+                        <option value="B2">B2</option>
+                    </select>
+                </label>
+                <label class="text-sm text-neutral block">科目
+                    <select id="ctx-subject" class="w-full mt-1 border border-gray-300 rounded-md px-3 py-2">
+                        <option value="科目一">科目一</option>
+                        <option value="科目四">科目四</option>
+                    </select>
+                </label>
+                <p class="text-xs text-neutral">演示按钮：当前只保存并展示选择，后续可据此切换题库。</p>
+            </div>
+            <div class="flex justify-end gap-2 mt-5">
+                <button class="btn btn-outline" id="context-reset">恢复默认</button>
+                <button class="btn btn-primary" id="context-save">保存</button>
+            </div>
         </div>
     </div>
     

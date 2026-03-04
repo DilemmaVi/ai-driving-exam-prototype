@@ -967,6 +967,9 @@ function bindEvents() {
   qs('#btn-student-manage')?.addEventListener('click', () => {
     openStudentManageModal();
   });
+  qs('#btn-context-switch')?.addEventListener('click', () => {
+    openContextModal();
+  });
 
   // 练题按钮
   qs('#btn-prev').addEventListener('click', () => {
@@ -2836,7 +2839,7 @@ function bindHelpActions() {
         // 逐项清空（不直接依赖 storage.js 的 clearAllData 以避免循环import）
         const keys = [
           'qa.examDate','qa.progress','qa.favorites','qa.notes','qa.wrong','qa.wrongStreak','qa.daily',
-          'qa.knowledgeMastery','qa.diagnosis','qa.settings','qa.wrongReason','qa.review','qa.examHistory'
+          'qa.knowledgeMastery','qa.diagnosis','qa.settings','qa.wrongReason','qa.review','qa.examHistory','qa.trainingContext'
         ];
         keys.forEach(k => localStorage.removeItem(k));
         alert('已清空本地数据。');
@@ -3632,7 +3635,7 @@ const AUTH_KEYS = {
 
 const STUDENT_DATA_KEYS = [
   'qa.examDate','qa.progress','qa.favorites','qa.notes','qa.wrong','qa.wrongStreak','qa.daily',
-  'qa.knowledgeMastery','qa.diagnosis','qa.settings','qa.wrongReason','qa.review','qa.examHistory'
+  'qa.knowledgeMastery','qa.diagnosis','qa.settings','qa.wrongReason','qa.review','qa.examHistory','qa.trainingContext'
 ];
 
 let authState = {
@@ -3640,6 +3643,70 @@ let authState = {
   activeStudentId: '',
   students: []
 };
+
+function getTrainingContext() {
+  return parseJsonSafe(localStorage.getItem('qa.trainingContext'), {
+    city: '深圳',
+    carType: 'C1',
+    subject: '科目一'
+  });
+}
+
+function setTrainingContext(ctx) {
+  localStorage.setItem('qa.trainingContext', JSON.stringify({
+    city: String(ctx?.city || '深圳'),
+    carType: String(ctx?.carType || 'C1'),
+    subject: String(ctx?.subject || '科目一')
+  }));
+}
+
+function renderTrainingContext() {
+  const ctx = getTrainingContext();
+  const text = `城市：${ctx.city} · 车型：${ctx.carType} · 科目：${ctx.subject}`;
+  const brief = qs('#context-brief');
+  if (brief) brief.textContent = text;
+}
+
+function openContextModal() {
+  const m = qs('#context-modal');
+  if (!m) return;
+  const ctx = getTrainingContext();
+  const city = qs('#ctx-city');
+  const car = qs('#ctx-car');
+  const sub = qs('#ctx-subject');
+  if (city) city.value = ctx.city;
+  if (car) car.value = ctx.carType;
+  if (sub) sub.value = ctx.subject;
+  m.classList.remove('hidden');
+}
+
+function closeContextModal() {
+  qs('#context-modal')?.classList.add('hidden');
+}
+
+function bindContextModal() {
+  const m = qs('#context-modal');
+  if (!m || m.dataset.bound) return;
+  m.dataset.bound = '1';
+  m.addEventListener('click', (e) => {
+    if (e.target === m) closeContextModal();
+  });
+  qs('#context-cancel')?.addEventListener('click', closeContextModal);
+  qs('#context-reset')?.addEventListener('click', () => {
+    setTrainingContext({ city: '深圳', carType: 'C1', subject: '科目一' });
+    renderTrainingContext();
+    openContextModal();
+  });
+  qs('#context-save')?.addEventListener('click', () => {
+    setTrainingContext({
+      city: qs('#ctx-city')?.value || '深圳',
+      carType: qs('#ctx-car')?.value || 'C1',
+      subject: qs('#ctx-subject')?.value || '科目一'
+    });
+    renderTrainingContext();
+    closeContextModal();
+  });
+}
 
 function parseJsonSafe(raw, fallback) {
   try {
@@ -3952,6 +4019,7 @@ function enterStudent(studentId) {
   closeAuthGate();
   updateSidebarIdentity();
   renderTopStudentSwitcher();
+  renderTrainingContext();
   renderStats();
   renderPlanSummary();
   renderGlobalCTA();
@@ -3978,6 +4046,7 @@ function bindAuthFlow() {
   if (!gate || gate.dataset.bound) return;
   gate.dataset.bound = '1';
   bindStudentManageModal();
+  bindContextModal();
 
   const tip = qs('#auth-tip');
   const setTip = (msg) => { if (tip) tip.textContent = msg || ''; };
@@ -4110,6 +4179,7 @@ async function main() {
   renderPlanSummary();
   renderGlobalCTA();
   renderExamPage();
+  renderTrainingContext();
   initAuthGate();
   window.addEventListener('beforeunload', persistActiveStudentSnapshot);
   document.addEventListener('visibilitychange', () => {
