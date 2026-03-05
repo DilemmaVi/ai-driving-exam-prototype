@@ -39,6 +39,53 @@ function cleanMarkedText(s) {
   return String(s || '').replace(/[【】]/g, '').replace(/[｛｝]/g, '').trim();
 }
 
+function normalizeQuestionImage(raw) {
+  const candidates = [
+    raw?.imgUrl,
+    raw?.img_url,
+    raw?.image,
+    raw?.imageUrl,
+    raw?.pic,
+    raw?.picture
+  ];
+  for (const c of candidates) {
+    const v = String(c || '').trim();
+    if (v) return v;
+  }
+  return '';
+}
+
+function resolveQuestionImageUrl(input) {
+  const raw = String(input || '').trim();
+  if (!raw) return '';
+  if (/^(https?:)?\/\//i.test(raw)) {
+    return raw.startsWith('//') ? `https:${raw}` : raw;
+  }
+  if (/^data:image\//i.test(raw)) return raw;
+
+  const path = raw.replace(/^\.?\//, '');
+  return `https://file.yxjky.com/${path}`;
+}
+
+function renderQuestionMediaHtml(q, cls = 'mt-3', mode = 'side') {
+  const url = resolveQuestionImageUrl(q?.imgUrl || '');
+  if (!url) return '';
+  const side = mode === 'side';
+  const boxCls = side
+    ? 'rounded-lg border border-gray-200 bg-gray-50 p-2 md:p-3'
+    : 'rounded-lg border border-gray-200 bg-gray-50 p-2 md:p-3';
+  const imgCls = side
+    ? 'mx-auto w-full h-auto max-h-56 md:max-h-72 object-contain rounded'
+    : 'mx-auto w-auto max-w-full max-h-72 md:max-h-96 object-contain rounded';
+  return `
+    <div class="${cls}">
+      <div class="${boxCls}">
+        <img src="${url}" alt="题目配图" class="${imgCls}" loading="lazy" referrerpolicy="no-referrer" onerror="this.closest('div').classList.add('hidden')" />
+      </div>
+    </div>
+  `;
+}
+
 const KNOWLEDGE_RULES = [
   { kid: 'law.signals', kws: ['信号灯', '红灯', '绿灯', '黄灯', '让行', '优先通行', '会车'] },
   { kid: 'law.lanes', kws: ['车道', '变道', '超车', '并线', '导向车道', '掉头', '转弯'] },
@@ -111,6 +158,7 @@ function normalizeQuestion(raw) {
   const inferredKid = inferKnowledgeIdFromText(`${stem} ${optionText}`);
   const inputKid = q.knowledgeId || 'law.basic';
   const knowledgeId = inputKid === 'law.basic' ? inferredKid : inputKid;
+  const imgUrl = normalizeQuestionImage(q);
   return {
     id: normalizeQuestionId(q.id),
     type,
@@ -118,6 +166,7 @@ function normalizeQuestion(raw) {
     frequency: Number(q.frequency || 3),
     difficulty: Number(q.difficulty || 3),
     stem,
+    imgUrl,
     options: opts,
     answer,
     analysis,
@@ -778,6 +827,18 @@ function renderQuestion() {
       stemEl.textContent = stemText;
     }
   }
+  const mediaEl = qs('#q-media');
+  const workspaceEl = qs('#q-workspace');
+  if (mediaEl) {
+    const html = renderQuestionMediaHtml(q, '', 'side');
+    mediaEl.innerHTML = html;
+    mediaEl.classList.toggle('hidden', !html);
+    if (workspaceEl) {
+      workspaceEl.className = html
+        ? 'mt-4 grid grid-cols-1 lg:grid-cols-5 gap-4 items-start'
+        : 'mt-4';
+    }
+  }
   qs('#q-tags').innerHTML = (q.tags || []).map(t => `<span class="badge badge-warning">${t}</span>`).join('')
     + (practiceMode === 'smart' ? '<span class="badge badge-success">AI加速</span>' : '')
     + (practiceMode === 'all' ? `<span class="badge badge-success">${orderPracticeScope === 'all' ? '顺序全量' : '顺序未做'}</span>` : '')
@@ -794,6 +855,14 @@ function renderQuestion() {
 
   // options
   const optWrap = qs('#q-options');
+  if (optWrap) {
+    optWrap.className = mediaEl && !mediaEl.classList.contains('hidden')
+      ? 'space-y-3 lg:col-span-3'
+      : 'space-y-3';
+  }
+  if (mediaEl && !mediaEl.classList.contains('hidden')) {
+    mediaEl.className = 'lg:col-span-2';
+  }
   optWrap.innerHTML = '';
 
   const typeLabel = questionTypeText(q.type, true);
@@ -2394,7 +2463,12 @@ function renderMockExamRuntime() {
       <div class="mt-6">
         <p class="text-lg font-medium">${q.stem}</p>
       </div>
-      <div class="mt-4 space-y-3" id="mock-exam-options"></div>
+      <div class="mt-4 ${q.imgUrl ? 'grid grid-cols-1 lg:grid-cols-5 gap-4 items-start' : ''}">
+        <div class="${q.imgUrl ? 'lg:col-span-3' : ''}">
+          <div class="space-y-3" id="mock-exam-options"></div>
+        </div>
+        ${q.imgUrl ? `<div class="lg:col-span-2">${renderQuestionMediaHtml(q, '', 'side')}</div>` : ''}
+      </div>
       <div class="mt-4 hidden" id="mock-exam-analysis">
         <div class="p-4 rounded-lg border border-gray-200 bg-gray-50">
           <div id="mock-exam-result" class="mb-2"></div>
@@ -2770,8 +2844,12 @@ function renderDiagnosisQuiz() {
       <div class="mt-6">
         <p class="text-lg font-medium">${q.stem}</p>
       </div>
-
-      <div class="mt-4 space-y-3" id="diag-options"></div>
+      <div class="mt-4 ${q.imgUrl ? 'grid grid-cols-1 lg:grid-cols-5 gap-4 items-start' : ''}">
+        <div class="${q.imgUrl ? 'lg:col-span-3' : ''}">
+          <div class="space-y-3" id="diag-options"></div>
+        </div>
+        ${q.imgUrl ? `<div class="lg:col-span-2">${renderQuestionMediaHtml(q, '', 'side')}</div>` : ''}
+      </div>
       <div class="mt-3 hidden" id="diag-submit-wrap">
         <div class="flex items-center justify-between">
           <p class="text-sm text-neutral" id="diag-submit-tip"></p>
