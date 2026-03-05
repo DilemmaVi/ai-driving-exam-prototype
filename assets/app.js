@@ -34,6 +34,8 @@ import {
 
 let QUESTIONS = [];
 let currentIndex = 0;
+let currentPageId = 'home';
+let pureSmartMode = false;
 
 function cleanMarkedText(s) {
   return String(s || '').replace(/[【】]/g, '').replace(/[｛｝]/g, '').trim();
@@ -199,6 +201,23 @@ function qsa(sel) {
   return Array.from(document.querySelectorAll(sel));
 }
 
+function updatePureSmartChrome() {
+  const sidebar = qs('#app-sidebar');
+  const headerActions = qs('#header-actions');
+  const returnBtn = qs('#smart-guide-return');
+  if (sidebar) sidebar.classList.toggle('hidden', pureSmartMode);
+  if (headerActions) headerActions.classList.toggle('hidden', pureSmartMode);
+  if (returnBtn) {
+    const show = pureSmartMode && currentPageId !== 'smart-guide';
+    returnBtn.classList.toggle('hidden', !show);
+  }
+}
+
+function setPureSmartMode(enabled) {
+  pureSmartMode = !!enabled;
+  updatePureSmartChrome();
+}
+
 function showQuestionLoadHint() {
   const err = window.__questionsLoadError || '';
   const proto = window.location?.protocol || '';
@@ -219,11 +238,14 @@ function questionTypeText(type, long = false) {
 }
 
 function showPage(pageId, title) {
+  currentPageId = pageId;
   qsa('.page-content').forEach(p => p.classList.add('hidden'));
   qs('#' + pageId)?.classList.remove('hidden');
   if (title) qs('#page-title').textContent = title;
   qsa('.nav-item').forEach(n => n.classList.remove('active'));
   qs(`.nav-item[data-target="${pageId}"]`)?.classList.add('active');
+  updatePureSmartChrome();
+  refreshSmartGuideEntryButton();
 
   // 进入诊断页时刷新诊断状态
   if (pageId === 'diagnosis') {
@@ -231,6 +253,9 @@ function showPage(pageId, title) {
   }
   if (pageId === 'exam') {
     renderExamPage();
+  }
+  if (pageId === 'smart-guide') {
+    renderSmartGuideFlow();
   }
 }
 
@@ -249,6 +274,7 @@ function clamp(n, min, max) {
 }
 
 const SMART_LOCK_OPTIONS = [5, 10, 20, 30, 40, 50];
+const ANSWER_AUTO_NEXT_DELAY_MS = 1300;
 function normalizeSmartLockN(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 10;
@@ -262,6 +288,31 @@ function normalizeSmartLockN(v) {
     }
   }
   return best;
+}
+
+function isAnswerAutoNextEnabled(settings = getSettings()) {
+  return settings.answerAutoNext === true || settings.diagnosisAutoNext === true;
+}
+
+function setAnswerAutoNext(enabled) {
+  const s = getSettings();
+  const next = !!enabled;
+  s.answerAutoNext = next;
+  // 向后兼容旧字段，避免历史数据与新逻辑不一致
+  s.diagnosisAutoNext = next;
+  setSettings(s);
+  return next;
+}
+
+function maybeScheduleAutoNext(opts = {}) {
+  if (!isAnswerAutoNextEnabled(getSettings())) return false;
+  if (typeof opts.renderLocked === 'function') opts.renderLocked();
+  const expectedQuestionId = String(opts.expectedQuestionId || '');
+  setTimeout(() => {
+    if (typeof opts.canAdvance === 'function' && !opts.canAdvance(expectedQuestionId)) return;
+    if (typeof opts.goNext === 'function') opts.goNext();
+  }, ANSWER_AUTO_NEXT_DELAY_MS);
+  return true;
 }
 
 function getPlanConfig() {
@@ -322,6 +373,29 @@ function getDaysLeft(examDate) {
   const today = new Date(todayStr() + 'T00:00:00');
   const exam = new Date(examDate + 'T00:00:00');
   return Math.max(0, Math.ceil((exam.getTime() - today.getTime()) / (1000 * 3600 * 24)));
+}
+
+function refreshSmartGuideEntryButton() {
+  const btn = qs('#enter-smart-guide');
+  const badge = qs('#smart-guide-urgent-badge');
+  if (!btn) return;
+
+  const examDate = getExamDate();
+  const daysLeft = examDate ? getDaysLeft(examDate) : null;
+  const isUrgent = Number.isFinite(daysLeft) && daysLeft !== null && daysLeft <= 7;
+
+  btn.classList.toggle('bg-error', isUrgent);
+  btn.classList.toggle('hover:bg-error/90', isUrgent);
+  btn.classList.toggle('shadow-error/30', isUrgent);
+  btn.classList.toggle('ring-error/25', isUrgent);
+  btn.classList.toggle('bg-primary', !isUrgent);
+  btn.classList.toggle('hover:bg-primary/90', !isUrgent);
+  btn.classList.toggle('shadow-primary/30', !isUrgent);
+  btn.classList.toggle('ring-primary/20', !isUrgent);
+  if (badge) badge.classList.toggle('hidden', !isUrgent);
+  btn.title = isUrgent && daysLeft !== null
+    ? `距离考试 ${daysLeft} 天，建议进入 AI 托管冲刺`
+    : '进入 AI 托管学习';
 }
 
 function getDynamicDailyPlan(total, done, examDate) {
@@ -634,6 +708,11 @@ let knowledgeTitle = '';
 let reviewQueue = [];
 const practiceDraftAnswers = {};
 const diagnosisDraftAnswers = {};
+let practiceCurrentAnswer = null; // 仅用于练题页当前题即时反馈，不回显历史作答
+
+function clearPracticeCurrentAnswer() {
+  practiceCurrentAnswer = null;
+}
 
 function syncPracticeModeButtons() {
   qsa('[data-practice-mode]').forEach(btn => {
@@ -652,6 +731,8 @@ function syncPracticeModeButtons() {
   if (orderCtl) orderCtl.classList.toggle('hidden', practiceMode !== 'all');
   const orderSel = qs('#order-scope');
   if (orderSel && orderSel.value !== orderPracticeScope) orderSel.value = orderPracticeScope;
+  const autoNext = qs('#practice-auto-next');
+  if (autoNext) autoNext.checked = isAnswerAutoNextEnabled(getSettings());
 }
 
 function getCurrentQuestion() {
@@ -666,6 +747,66 @@ function getCurrentTotal() {
   if (practiceMode === 'knowledge') return knowledgeQueue.length;
   if (practiceMode === 'review') return reviewQueue.length;
   return QUESTIONS.length;
+}
+
+function findOrderUnansweredNeighbor(direction, fromIndex, progress = getProgress()) {
+  if (practiceMode !== 'all' || orderPracticeScope !== 'unanswered') return -1;
+  const start = Number(fromIndex);
+  if (!Number.isFinite(start)) return -1;
+  if (direction > 0) {
+    for (let i = start + 1; i < QUESTIONS.length; i += 1) {
+      if (!progress.answered?.[QUESTIONS[i]?.id]) return i;
+    }
+    return -1;
+  }
+  for (let i = start - 1; i >= 0; i -= 1) {
+    if (!progress.answered?.[QUESTIONS[i]?.id]) return i;
+  }
+  return -1;
+}
+
+function goPracticeNextQuestion() {
+  if (practiceMode === 'review') {
+    clearPracticeCurrentAnswer();
+    startReviewPractice();
+    return;
+  }
+  if (practiceMode === 'smart') {
+    clearPracticeCurrentAnswer();
+    currentIndex = pickSmartIndex();
+    renderQuestion();
+    return;
+  }
+  if (practiceMode === 'all' && orderPracticeScope === 'unanswered') {
+    const nextUnanswered = findOrderUnansweredNeighbor(1, currentIndex);
+    if (nextUnanswered >= 0) {
+      clearPracticeCurrentAnswer();
+      currentIndex = nextUnanswered;
+      renderQuestion();
+      return;
+    }
+  } else if (currentIndex < getCurrentTotal() - 1) {
+    clearPracticeCurrentAnswer();
+    currentIndex += 1;
+  }
+  renderQuestion();
+}
+
+function goPracticePrevQuestion() {
+  if (practiceMode === 'all' && orderPracticeScope === 'unanswered') {
+    const prevUnanswered = findOrderUnansweredNeighbor(-1, currentIndex);
+    if (prevUnanswered >= 0) {
+      clearPracticeCurrentAnswer();
+      currentIndex = prevUnanswered;
+    }
+    renderQuestion();
+    return;
+  }
+  if (currentIndex > 0) {
+    clearPracticeCurrentAnswer();
+    currentIndex -= 1;
+  }
+  renderQuestion();
 }
 
 function getTopWrongReason(profile) {
@@ -804,7 +945,9 @@ function renderQuestion() {
   if (!q) return;
 
   const progress = getProgress();
-  const answered = progress.answered?.[q.id];
+  const answered = (practiceCurrentAnswer && practiceCurrentAnswer.questionId === q.id)
+    ? { selected: practiceCurrentAnswer.selected, correct: practiceCurrentAnswer.correct }
+    : null;
   const kName = KNOWLEDGE_DICT[q.knowledgeId] || q.knowledgeName || '未标注知识点';
   const isMulti = q.type === 'multi';
   const answerIndexes = getAnswerIndexes(q.answer);
@@ -937,6 +1080,11 @@ function renderQuestion() {
 
   function applyAnswer(selectedPayload, correct) {
     const ts = Date.now();
+    practiceCurrentAnswer = {
+      questionId: q.id,
+      selected: selectedPayload,
+      correct: !!correct
+    };
     upsertAnswer(q.id, selectedPayload, correct, { wrongClearThreshold: 2 });
     updateKnowledgeMastery(q.knowledgeId, correct, { frequency: q.frequency, difficulty: q.difficulty });
     scheduleReview(q.id, correct);
@@ -977,12 +1125,20 @@ function renderQuestion() {
         renderPlanSummary();
         return;
       }
-      currentIndex = pickSmartIndex();
     }
 
-    renderQuestion();
-    renderStats();
-    renderPlanSummary();
+    const renderAfterAnswer = () => {
+      renderQuestion();
+      renderStats();
+      renderPlanSummary();
+    };
+    const autoMoved = maybeScheduleAutoNext({
+      expectedQuestionId: q.id,
+      renderLocked: renderAfterAnswer,
+      canAdvance: (expectedId) => currentPageId === 'practice' && getCurrentQuestion()?.id === expectedId,
+      goNext: goPracticeNextQuestion
+    });
+    if (!autoMoved) renderAfterAnswer();
 
     if (practiceMode === 'wrong') {
       const ids = getWrongList();
@@ -1099,8 +1255,25 @@ function renderQuestion() {
   noteEl.value = note;
 
   // buttons state
-  qs('#btn-prev').disabled = currentIndex === 0;
-  qs('#btn-next').disabled = currentIndex === getCurrentTotal() - 1;
+  const prevBtn = qs('#btn-prev');
+  if (prevBtn) {
+    if (practiceMode === 'all' && orderPracticeScope === 'unanswered') {
+      prevBtn.disabled = findOrderUnansweredNeighbor(-1, currentIndex, progress) < 0;
+    } else {
+      prevBtn.disabled = currentIndex === 0;
+    }
+  }
+  const nextBtn = qs('#btn-next');
+  if (nextBtn) {
+    const canLoopNext = practiceMode === 'smart' || practiceMode === 'review';
+    if (canLoopNext) {
+      nextBtn.disabled = false;
+    } else if (practiceMode === 'all' && orderPracticeScope === 'unanswered') {
+      nextBtn.disabled = findOrderUnansweredNeighbor(1, currentIndex, progress) < 0;
+    } else {
+      nextBtn.disabled = currentIndex === getCurrentTotal() - 1;
+    }
+  }
   syncPracticeModeButtons();
 }
 
@@ -1118,7 +1291,9 @@ function renderStats() {
   const wrongCount = (getWrongList() || []).length;
   const wrongBadge = qs('#stat-wrong');
   if (wrongBadge) wrongBadge.textContent = String(wrongCount);
+  refreshSmartGuideEntryButton();
   renderTodayMissionFlow();
+  renderSmartGuideFlow();
 }
 
 function openSmartSummary() {
@@ -1164,6 +1339,7 @@ function bindEvents() {
       const target = this.getAttribute('data-target');
       const titles = {
         'home': '首页',
+        'smart-guide': 'AI 托管学习',
         'diagnosis': 'AI 智能诊断',
         'learning': 'AI 个性学习',
         'practice': '练题',
@@ -1182,6 +1358,10 @@ function bindEvents() {
       if (target === 'home') {
         renderStats();
         renderPlanSummary();
+      }
+      if (target === 'smart-guide') {
+        setPureSmartMode(true);
+        renderSmartGuideFlow();
       }
       if (target === 'wrongbook') {
         renderWrongbook();
@@ -1207,6 +1387,15 @@ function bindEvents() {
   qs('#btn-switch-student')?.addEventListener('click', () => {
     openAuthGate('student');
   });
+  qs('#enter-smart-guide')?.addEventListener('click', () => {
+    setPureSmartMode(true);
+    showPage('smart-guide', 'AI 托管学习');
+    renderSmartGuideFlow();
+  });
+  qs('#smart-guide-return')?.addEventListener('click', () => {
+    showPage('smart-guide', 'AI 托管学习');
+    renderSmartGuideFlow();
+  });
   qs('#btn-logout-org')?.addEventListener('click', () => {
     logoutOrg();
   });
@@ -1223,19 +1412,10 @@ function bindEvents() {
 
   // 练题按钮
   qs('#btn-prev').addEventListener('click', () => {
-    if (currentIndex > 0) currentIndex -= 1;
-    renderQuestion();
+    goPracticePrevQuestion();
   });
   qs('#btn-next').addEventListener('click', () => {
-    if (practiceMode === 'smart') {
-      currentIndex = pickSmartIndex();
-    } else if (practiceMode === 'review') {
-      startReviewPractice();
-      return;
-    } else {
-      if (currentIndex < getCurrentTotal() - 1) currentIndex += 1;
-    }
-    renderQuestion();
+    goPracticeNextQuestion();
   });
 
   // 智能锁定控制
@@ -1269,6 +1449,11 @@ function bindEvents() {
       }
     });
   }
+
+  qs('#practice-auto-next')?.addEventListener('change', (e) => {
+    setAnswerAutoNext(!!e.target.checked);
+    syncPracticeModeButtons();
+  });
 
   // 智能组小结弹窗
   const smartModal = qs('#smart-summary-modal');
@@ -1512,6 +1697,7 @@ function bindEvents() {
     confirm.addEventListener('click', () => {
       const examDate = qs('#exam-date')?.value;
       if (examDate) setExamDate(examDate);
+      refreshSmartGuideEntryButton();
       renderPlanSummary();
     });
   }
@@ -1525,6 +1711,7 @@ function bindEvents() {
 }
 
 function startWrongPractice() {
+  clearPracticeCurrentAnswer();
   const ids = getWrongList();
   const map = new Map(QUESTIONS.map(q => [q.id, q]));
   wrongQueue = ids.map(id => map.get(id)).filter(Boolean);
@@ -1541,6 +1728,7 @@ function startWrongPractice() {
 }
 
 function startReviewPractice() {
+  clearPracticeCurrentAnswer();
   const r = getReview();
   const dueIds = Object.keys(r)
     .filter(id => (r[id]?.nextTs || 0) <= Date.now())
@@ -1563,6 +1751,7 @@ function startReviewPractice() {
 }
 
 function startSmartPractice() {
+  clearPracticeCurrentAnswer();
   practiceMode = 'smart';
   smartLock = { kid: '', remain: 0, groupTotal: 0, groupCorrect: 0, groupWrong: 0, groupStartTs: 0 };
   currentIndex = pickSmartIndex();
@@ -1572,6 +1761,7 @@ function startSmartPractice() {
 }
 
 function startOrderPractice(scope = '') {
+  clearPracticeCurrentAnswer();
   if (scope === 'all' || scope === 'unanswered') orderPracticeScope = scope;
   practiceMode = 'all';
   if (orderPracticeScope === 'all') {
@@ -1726,6 +1916,234 @@ function renderTodayMissionFlow() {
       runTodayMissionAction(action, { kid });
     });
   });
+}
+
+function getTodayExamDone() {
+  const start = new Date(`${todayStr()}T00:00:00`).getTime();
+  const end = start + 24 * 3600 * 1000;
+  return getExamHistory().some(x => {
+    const ts = Number(x?.finishedAt || 0);
+    return ts >= start && ts < end && String(x?.examType || '') === 'quick';
+  });
+}
+
+function getSmartGuideState() {
+  const d = getDiagnosis();
+  const total = QUESTIONS.length || 0;
+  const progress = getProgress();
+  const done = Number(progress.doneCount || 0);
+  const examDate = getExamDate();
+  const plan = getDynamicDailyPlan(total, done, examDate);
+  const daily = getDaily();
+  const today = todayStr();
+  const todayRec = daily.byDate?.[today] || { done: 0, correct: 0 };
+  const todayDone = Number(todayRec.done || 0);
+  const todayAcc = todayDone ? Math.round((Number(todayRec.correct || 0) / todayDone) * 100) : 0;
+  const mission = getTodayMissionState();
+  const weak = getCrashWeakKnowledge(1)[0];
+  const dueReview = getDueReviewCount();
+  const examDone = getTodayExamDone();
+  const diagDone = d.status === 'done';
+  const diagRunning = d.status === 'running';
+  const missionDone = mission.step1Done && mission.step2Done && mission.step3Done;
+  const dailyDone = todayDone >= plan.totalTarget;
+
+  return {
+    d,
+    total,
+    done,
+    examDate,
+    plan,
+    todayDone,
+    todayAcc,
+    mission,
+    weak,
+    dueReview,
+    examDone,
+    diagDone,
+    diagRunning,
+    missionDone,
+    dailyDone
+  };
+}
+
+function pickSmartGuideNextAction(st) {
+  if (!st.diagDone) {
+    if (st.diagRunning) {
+      return {
+        key: 'diagnosis_continue',
+        cta: '继续诊断',
+        title: `继续 AI 诊断（${st.d.cursor || 0}/${st.d.queue?.length || DIAG_TOTAL}）`,
+        hint: '先完成基础诊断，后续推荐会更准确。'
+      };
+    }
+    return {
+      key: 'diagnosis_start',
+      cta: '开始诊断',
+      title: '启动 AI 诊断（100题）',
+      hint: '系统先校准你的薄弱点和提分优先级。'
+    };
+  }
+
+  if (!st.mission.step1Done) {
+    return {
+      key: 'weak',
+      cta: '开始弱项专项',
+      title: `弱项专项20题：${st.mission.weakName}`,
+      hint: `当前进度 ${Math.min(st.mission.weakDone, 20)}/20，先补最短板。`,
+      kid: st.mission.weakKid
+    };
+  }
+
+  if (!st.mission.step2Done) {
+    return {
+      key: 'review',
+      cta: '开始到期复习',
+      title: '到期复习清理',
+      hint: `当前到期 ${st.dueReview} 题，优先防遗忘回退。`
+    };
+  }
+
+  if (!st.mission.step3Done) {
+    return {
+      key: 'exam_quick',
+      cta: '开始快速模考',
+      title: '20分钟快速模考',
+      hint: '完成今日校准，检查临场稳定性。'
+    };
+  }
+
+  if (!st.dailyDone) {
+    if (st.dueReview > 0) {
+      return {
+        key: 'review',
+        cta: '继续复习',
+        title: `继续复习：还剩到期 ${st.dueReview} 题`,
+        hint: `今日目标 ${st.todayDone}/${st.plan.totalTarget}，先做复习更稳。`
+      };
+    }
+    return {
+      key: 'practice_smart',
+      cta: '继续智能练题',
+      title: 'AI 加速练题',
+      hint: `今日目标 ${st.todayDone}/${st.plan.totalTarget}，继续推进即可达成。`
+    };
+  }
+
+  return {
+    key: 'practice_smart',
+    cta: '继续巩固',
+    title: '今日目标已达成，进入巩固模式',
+    hint: '系统将持续安排高频短板与遗忘风险题。'
+  };
+}
+
+function runSmartGuideAction(action, extra = {}) {
+  if (action === 'diagnosis_start') {
+    showPage('diagnosis', '智能诊断');
+    startDiagnosis(true);
+    return;
+  }
+  if (action === 'diagnosis_continue') {
+    showPage('diagnosis', '智能诊断');
+    startDiagnosis(false);
+    return;
+  }
+  if (action === 'weak') {
+    const kid = extra.kid || getTodayMissionState().weakKid;
+    startKnowledgePractice(kid, 20);
+    return;
+  }
+  if (action === 'review') {
+    startReviewPractice();
+    return;
+  }
+  if (action === 'exam_quick') {
+    startMockExam('quick');
+    return;
+  }
+  startSmartPractice();
+}
+
+function renderSmartGuideFlow() {
+  const nextCard = qs('#smart-guide-next-card');
+  const overviewCard = qs('#smart-guide-overview-card');
+  const goals = qs('#smart-guide-goals');
+  const nextBtn = qs('#smart-guide-next-btn');
+  const exitBtn = qs('#smart-guide-exit-btn');
+  if (!nextCard || !overviewCard || !goals || !nextBtn || !exitBtn) return;
+
+  const st = getSmartGuideState();
+  const next = pickSmartGuideNextAction(st);
+  const progressPct = st.plan.totalTarget
+    ? Math.min(100, Math.round((st.todayDone / st.plan.totalTarget) * 100))
+    : 0;
+  const goalRows = [
+    {
+      title: '完成 AI 诊断',
+      hint: st.diagDone ? '已完成' : (st.diagRunning ? `进行中 ${st.d.cursor || 0}/${st.d.queue?.length || DIAG_TOTAL}` : '未开始'),
+      done: st.diagDone
+    },
+    {
+      title: '完成今日三步任务',
+      hint: st.missionDone
+        ? '已完成（弱项专项 + 复习 + 快速模考）'
+        : `当前：${st.mission.step1Done ? '1' : '0'}/${st.mission.step2Done ? '1' : '0'}/${st.mission.step3Done ? '1' : '0'}`,
+      done: st.missionDone
+    },
+    {
+      title: '达成今日目标',
+      hint: `${st.todayDone}/${st.plan.totalTarget} 题 · 正确率 ${st.todayAcc}%`,
+      done: st.dailyDone
+    }
+  ];
+
+  nextCard.innerHTML = `
+    <h4 class="font-bold mb-2">系统下一步</h4>
+    <p class="text-xl font-bold">${next.title}</p>
+    <p class="text-sm text-neutral mt-2">${next.hint}</p>
+    <div class="mt-4">
+      <div class="progress-bar"><div class="progress-bar-fill" style="width:${progressPct}%"></div></div>
+      <p class="text-xs text-neutral mt-2">今日完成进度：${st.todayDone}/${st.plan.totalTarget}（${progressPct}%）</p>
+    </div>
+  `;
+
+  overviewCard.innerHTML = `
+    <h4 class="font-bold mb-3">今日概览</h4>
+    <div class="space-y-3">
+      <div class="border border-gray-200 rounded-lg p-3">
+        <p class="text-xs text-neutral">考试日期</p>
+        <p class="font-medium mt-1">${st.examDate || '未设置'}</p>
+      </div>
+      <div class="border border-gray-200 rounded-lg p-3">
+        <p class="text-xs text-neutral">阶段策略</p>
+        <p class="font-medium mt-1">${st.plan.stageLabel}</p>
+      </div>
+      <div class="border border-gray-200 rounded-lg p-3">
+        <p class="text-xs text-neutral">到期复习</p>
+        <p class="font-medium mt-1">${st.dueReview} 题</p>
+      </div>
+    </div>
+  `;
+
+  goals.innerHTML = goalRows.map(g => `
+    <div class="flex items-center justify-between border ${g.done ? 'border-success/40 bg-success/5' : 'border-gray-200'} rounded-lg p-3">
+      <div>
+        <p class="font-medium">${g.title}</p>
+        <p class="text-sm text-neutral mt-1">${g.hint}</p>
+      </div>
+      <span class="badge ${g.done ? 'badge-success' : ''}">${g.done ? '已完成' : '进行中'}</span>
+    </div>
+  `).join('');
+
+  nextBtn.textContent = next.cta;
+  nextBtn.onclick = () => runSmartGuideAction(next.key, { kid: next.kid || '' });
+  exitBtn.onclick = () => {
+    setPureSmartMode(false);
+    showPage('home', '首页');
+    renderStats();
+    renderPlanSummary();
+  };
 }
 
 function getCrashWeakKnowledge(limit = 3) {
@@ -2833,6 +3251,10 @@ function renderDiagnosisQuiz() {
             <input type="checkbox" id="diag-show-analysis" ${settings.diagnosisShowAnalysis ? 'checked' : ''} />
             <span>显示解析</span>
           </label>
+          <label class="flex items-center gap-2 text-sm text-neutral bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+            <input type="checkbox" id="diag-auto-next" ${isAnswerAutoNextEnabled(settings) ? 'checked' : ''} />
+            <span>选完自动下一题</span>
+          </label>
           <div class="px-3 py-2 rounded-lg bg-primary/10 text-primary font-medium" id="diag-timer">倒计时：--:--</div>
           <button class="btn btn-secondary" id="btn-diag-exit">退出（可继续）</button>
         </div>
@@ -2861,14 +3283,14 @@ function renderDiagnosisQuiz() {
         <div class="p-4 rounded-lg border border-gray-200 bg-gray-50">
           <div class="mb-2" id="diag-result"></div>
           <p class="text-sm"><strong>解析：</strong><span id="diag-analysis-text"></span></p>
-          <div class="flex justify-end mt-4">
+          <div class="flex justify-start mt-4">
             <button class="btn btn-primary" id="btn-diag-next">下一题</button>
           </div>
         </div>
       </div>
 
       <div class="mt-4 hidden" id="diag-next-only">
-        <div class="flex justify-end">
+        <div class="flex justify-start">
           <button class="btn btn-primary" id="btn-diag-next2">下一题</button>
         </div>
       </div>
@@ -2905,6 +3327,9 @@ function renderDiagnosisQuiz() {
     const s = getSettings();
     s.diagnosisShowAnalysis = !!e.target.checked;
     setSettings(s);
+  });
+  qs('#diag-auto-next')?.addEventListener('change', (e) => {
+    setAnswerAutoNext(!!e.target.checked);
   });
 
   qs('#btn-diag-exit')?.addEventListener('click', () => {
@@ -2958,18 +3383,8 @@ function renderDiagnosisQuiz() {
       d.answers[q.id] = { selected: oi, correct, ts: Date.now() };
       setDiagnosis(d);
       updateKnowledgeMastery(q.knowledgeId, correct, { frequency: q.frequency, difficulty: q.difficulty });
-      const s = getSettings();
-      if (s.diagnosisShowAnalysis) {
-        const box = qs('#diag-analysis');
-        box.classList.remove('hidden');
-        qs('#diag-analysis-text').textContent = q.analysis || '暂无解析';
-        qs('#diag-result').innerHTML = correct
-          ? '<span class="text-success font-medium"><i class="fa fa-check-circle mr-2"></i>回答正确</span>'
-          : '<span class="text-error font-medium"><i class="fa fa-times-circle mr-2"></i>回答错误</span>';
-      } else {
-        const nextOnly = qs('#diag-next-only');
-        nextOnly.classList.remove('hidden');
-      }
+      if (maybeAutoNext()) return;
+      renderDiagnosisQuiz();
     });
 
     optWrap.appendChild(item);
@@ -2978,6 +3393,17 @@ function renderDiagnosisQuiz() {
   const submitWrap = qs('#diag-submit-wrap');
   const submitTip = qs('#diag-submit-tip');
   const submitBtn = qs('#btn-diag-submit');
+  const maybeAutoNext = () => {
+    return maybeScheduleAutoNext({
+      expectedQuestionId: q.id,
+      renderLocked: renderDiagnosisQuiz,
+      canAdvance: (expectedId) => {
+        const cur = getDiagnosis();
+        return cur.status === 'running' && diagnosisCurrentQuestion()?.id === expectedId;
+      },
+      goNext
+    });
+  };
   if (submitWrap && submitTip && submitBtn) {
     if (isMulti && !locked) {
       submitWrap.classList.remove('hidden');
@@ -2991,22 +3417,30 @@ function renderDiagnosisQuiz() {
         setDiagnosis(d);
         delete diagnosisDraftAnswers[q.id];
         updateKnowledgeMastery(q.knowledgeId, correct, { frequency: q.frequency, difficulty: q.difficulty });
-        const s = getSettings();
-        if (s.diagnosisShowAnalysis) {
-          const box = qs('#diag-analysis');
-          box.classList.remove('hidden');
-          qs('#diag-analysis-text').textContent = q.analysis || '暂无解析';
-          qs('#diag-result').innerHTML = correct
-            ? '<span class="text-success font-medium"><i class="fa fa-check-circle mr-2"></i>回答正确</span>'
-            : '<span class="text-error font-medium"><i class="fa fa-times-circle mr-2"></i>回答错误</span>';
-        } else {
-          const nextOnly = qs('#diag-next-only');
-          nextOnly.classList.remove('hidden');
-        }
+        if (maybeAutoNext()) return;
+        renderDiagnosisQuiz();
       };
     } else {
       submitWrap.classList.add('hidden');
       submitBtn.onclick = null;
+    }
+  }
+
+  if (locked) {
+    const ok = !!answered?.correct;
+    if (settings.diagnosisShowAnalysis) {
+      const box = qs('#diag-analysis');
+      if (box) box.classList.remove('hidden');
+      const analysisText = qs('#diag-analysis-text');
+      if (analysisText) analysisText.textContent = q.analysis || '暂无解析';
+      const result = qs('#diag-result');
+      if (result) {
+        result.innerHTML = ok
+          ? '<span class="text-success font-medium"><i class="fa fa-check-circle mr-2"></i>回答正确</span>'
+          : '<span class="text-error font-medium"><i class="fa fa-times-circle mr-2"></i>回答错误</span>';
+      }
+    } else {
+      qs('#diag-next-only')?.classList.remove('hidden');
     }
   }
 
@@ -3054,6 +3488,7 @@ function calcPredictedScoreFromMastery() {
 }
 
 function startKnowledgePractice(knowledgeId, targetCount = 20) {
+  clearPracticeCurrentAnswer();
   const list = QUESTIONS.filter(q => (q.knowledgeId || 'law.basic') === knowledgeId);
   if (!list.length) {
     // fallback to smart
@@ -3153,13 +3588,12 @@ function renderDiagnosisReport() {
           <div class="space-y-3">
             ${topROI.map(r => {
               const pct = Math.round(r.mastery * 100);
-              const roi = r.roi.toFixed(1);
               return `
                 <div class="border border-gray-200 rounded-lg p-4">
                   <div class="flex items-center justify-between gap-4">
                     <div>
                       <p class="font-medium">${r.name}</p>
-                      <p class="text-sm text-neutral mt-1">掌握度：${pct}% · 权重：${r.weight} · 提分潜力：${roi}</p>
+                      <p class="text-sm text-neutral mt-1">掌握度：${pct}%</p>
                     </div>
                     <div>
                       <button class="btn btn-outline" data-roi-practice="${r.k}">去专项练习</button>
@@ -4596,12 +5030,14 @@ function enterStudent(studentId) {
   renderExamPage();
   renderCrashCourse();
   renderReportPage();
+  setPureSmartMode(false);
   showPage('home', '首页');
 }
 
 function logoutOrg() {
   persistActiveStudentSnapshot();
   authState = { org: null, activeStudentId: '', students: [] };
+  setPureSmartMode(false);
   localStorage.removeItem(AUTH_KEYS.ACTIVE_STUDENT);
   setOrgSession(null);
   const tip = qs('#auth-tip');

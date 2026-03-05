@@ -21,6 +21,8 @@ export const LS_KEYS = {
 
 const SETTINGS_DEFAULT = {
   diagnosisShowAnalysis: true,
+  answerAutoNext: false,
+  diagnosisAutoNext: false,
   smartLockN: 10,
   plan: {
     maxNewPerDay: 160,
@@ -251,10 +253,13 @@ export function getSettings() {
   const parsed = safeJsonParse(localStorage.getItem(LS_KEYS.SETTINGS), {});
   const obj = parsed && typeof parsed === 'object' ? parsed : {};
   const plan = obj.plan && typeof obj.plan === 'object' ? obj.plan : {};
+  const answerAutoNext = obj.answerAutoNext === true || obj.diagnosisAutoNext === true;
   return {
     ...SETTINGS_DEFAULT,
     ...obj,
     diagnosisShowAnalysis: obj.diagnosisShowAnalysis !== false,
+    answerAutoNext,
+    diagnosisAutoNext: answerAutoNext,
     smartLockN: Number(obj.smartLockN || SETTINGS_DEFAULT.smartLockN),
     plan: {
       ...SETTINGS_DEFAULT.plan,
